@@ -1,0 +1,370 @@
+<!DOCTYPE html>
+<html lang="en">
+<head>
+    <meta charset="UTF-8">
+    <title>2025 Year-End Party Seating Pre-selection System</title>
+    
+    <style>
+        /* --- CSS Style Definitions (CSS 樣式定義) --- */
+        body { font-family: Arial, sans-serif; margin: 20px; background-color: #f2f2f2; }
+        h1 { 
+            color: #333; text-align: center; margin-bottom: 20px; font-size: 48px;
+        }
+        #stage-area { width: 90%; height: 80px; margin: 20px auto 30px auto; background-color: #333; color: white; text-align: center; line-height: 80px; font-size: 2em; font-weight: bold; border-radius: 5px; box-shadow: 0 5px 15px rgba(0, 0, 0, 0.4); border-top: 5px solid #e74c3c; }
+        #seating-map { 
+            display: grid;
+    grid-template-columns: repeat(6, 130px) 80px repeat(6, 130px); /* 中間 80px 走道，可依場地放大縮小 */
+    grid-auto-rows: 130px;  /* 每一排高度與桌子等高 */
+    gap: 15px;               /* 桌與桌的間距 */
+    padding: 20px;
+    max-width: calc(130px*12 + 80px + 15px*12); /* 12桌 + 走道 + 12個gap */
+    margin: 20px auto;
+    background-color: #fff;
+    border-radius: 8px;
+    box-shadow: 0 4px 8px rgba(0,0,0,0.1);
+}
+        .table-card { 
+            width: 130px; height: 130px; padding-top: 8px; text-align: center; border-radius: 50%; cursor: pointer; transition: all 0.3s; border: 4px solid; display: flex; flex-direction: column; justify-content: center; margin-top: -15px; box-sizing: border-box; overflow: hidden; 
+             /* 12桌一排佈局 */
+        }
+        /* Zone Color Definitions (區域顏色定義) */
+        .table-card.ZoneA { border-color: #e74c3c; background-color: #fceceb; }
+        .table-card.ZoneB { border-color: #f39c12; background-color: #fff8e8; }
+        .table-card.ZoneC { border-color: #3498db; background-color: #e8f3fa; }
+        .table-card.full { background-color: #dcdcdc; cursor: not-allowed; opacity: 0.6; }
+        /* 特定桌號顏色覆蓋 (保持不變) */
+        .table-card[data-table-id="T031"], .table-card[data-table-id="T032"], .table-card[data-table-id="T033"] { border-color: #e74c3c; background-color: #fceceb; } 
+        
+        
+        .table-card:not(.full):hover { transform: translateY(-3px); box-shadow: 0 6px 12px rgba(0,0,0,0.2); }
+        #message-area { margin-top: 20px; padding: 10px; border-radius: 5px; font-weight: bold; min-height: 20px;}
+        .success { background-color: #d4edda; color: #155724; border: 1px solid #c3e6cb; }
+        .error { background-color: #f8d7da; color: #721c24; border: 1px solid #f5c6cb; }
+        .table-card h2 { font-size: 1.6em; margin: 0; line-height: 1.1; } /* 放大桌號 */
+        .table-card p { display: none; } /* CSS 隱藏區域名稱文字 */
+        .seats-info { font-weight: bold; margin-top: 5px; font-size: 0.95em; }
+        .table-card .reserve-btn { padding: 7px 11px; font-size: 0.85em; }
+
+        /* ⭐ MODAL CSS START (模態框樣式保持不變) ⭐ */
+        .modal { display: none; position: fixed; z-index: 10; left: 0; top: 0; width: 100%; height: 100%; overflow: auto; background-color: rgba(0,0,0,0.4); }
+        .modal-content { background-color: #fefefe; margin: 10% auto; padding: 25px; border: 1px solid #888; width: 90%; max-width: 450px; border-radius: 8px; box-shadow: 0 5px 15px rgba(0,0,0,0.3); animation: fadeIn 0.3s; }
+        .modal-header { padding-bottom: 15px; border-bottom: 1px solid #eee; margin-bottom: 15px; text-align: left; }
+        .modal-header h3 { margin: 0; font-size: 1.6em; color: #333; }
+        .modal-footer { padding-top: 15px; border-top: 1px solid #eee; margin-top: 15px; text-align: right; }
+        .modal-footer button { padding: 10px 15px; border: none; border-radius: 5px; cursor: pointer; font-weight: bold; margin-left: 10px; }
+        .modal-input label { font-weight: 600; margin-bottom: 5px; display: block; text-align: left; }
+        .modal-input input, .modal-input select { width: 100%; padding: 10px; margin-bottom: 15px; border: 1px solid #ccc; border-radius: 4px; box-sizing: border-box; font-size: 1em; }
+        .close-btn { color: #aaa; float: right; font-size: 28px; font-weight: bold; }
+        .close-btn:hover, .close-btn:focus { color: #000; text-decoration: none; cursor: pointer; }
+        @keyframes fadeIn { from {opacity: 0;} to {opacity: 1;} }
+        
+       /* 中央走道：固定在第 7 欄，滿高；可自訂視覺 */
+.aisle {
+    grid-column: 7;               /* 走道永遠在中間欄位 */
+    width: 100%;
+    height: 100%;
+    min-height: 130px;            /* 與桌子同高 */
+    border-left: 3px dashed #bbb; /* 視覺上的走道邊線 */
+    border-right: 3px dashed #bbb;
+    position: relative;
+    background-image: repeating-linear-gradient(
+        90deg,
+        rgba(0,0,0,0.03) 0,
+        rgba(0,0,0,0.03) 10px,
+        transparent 10px,
+        transparent 20px
+    );
+}
+.aisle::before {
+    content: 'AISLE';
+    position: absolute;
+    top: 50%;
+    left: 50%;
+    transform: translate(-50%, -50%) rotate(-90deg);
+    font-size: 12px;
+    color: #999;
+    letter-spacing: 2px;
+}
+
+        /* ⭐ MODAL CSS END ⭐ */
+    </style>
+</head>
+<body>
+    <h1>2025 Year-End Party Seating Pre-selection System (<span id="total-seats-left">Loading...</span> Seats Left)</h1>
+    
+    <p class="text-center mt-6 text-3xl text-gray-500">
+        <!-- 公開查詢連結 -->
+        <a href="/records" class="text-indigo-600 hover:text-indigo-800 font-semibold underline"
+   style="font-size: 28px;">View All Reservations</a>
+    </p>
+
+    <div id="stage-area">
+        Stage
+    </div>
+    
+    <div id="message-area"></div>
+
+    <div id="seating-map">
+    </div>
+
+    <!-- ⭐ 模態框 HTML 結構 START ⭐ -->
+    <div id="reservationModal" class="modal">
+        <div class="modal-content">
+            <div class="modal-header">
+                <span class="close-btn">&times;</span>
+                <h3 id="modal-title">Reserve Seat(s)</h3>
+                <p id="modal-seats-info" style="font-size: 0.9em; color: #555;">Available: Y seats</p>
+            </div>
+            <div class="modal-body">
+                <div class="modal-input">
+                    <label for="employeeName">Full Name:</label>
+                    <input type="text" id="employeeName" placeholder="e.g., Panos Panay" required>
+
+                    <label for="loginID">Login ID:</label>
+                    <input type="text" id="loginID" placeholder="e.g., panosp" required>
+                    
+                    <label for="seatsToTake">Number of Seats (1-3):</label>
+                    <select id="seatsToTake" required>
+                        <!-- 選項會在 JS 裡動態生成 -->
+                    </select>
+                </div>
+                <!-- 錯誤訊息框 -->
+                <div id="modal-error-message" class="error" style="display: none; padding: 10px;"></div>
+            </div>
+            <div class="modal-footer">
+                <button id="cancelModalBtn" style="background-color: #aaa;">Cancel</button>
+                <button id="confirmReservationBtn" style="background-color: #4CAF50;">Confirm</button>
+            </div>
+        </div>
+    </div>
+    <!-- ⭐ 模態框 HTML 結構 END ⭐ -->
+
+
+    <script>
+        const seatingMap = document.getElementById('seating-map');
+        const messageArea = document.getElementById('message-area');
+        
+        // Modal elements
+        const modal = document.getElementById('reservationModal');
+        const closeBtn = modal.querySelector('.close-btn');
+        const cancelModalBtn = document.getElementById('cancelModalBtn');
+        const confirmReservationBtn = document.getElementById('confirmReservationBtn');
+        const modalErrorMessage = document.getElementById('modal-error-message');
+        
+        let currentTableId = '';
+        let currentSeatsLeft = 0;
+        
+        // ⭐ 修正: tablesInCurrentRow 必須是全域變數 (用來追蹤走道) ⭐
+        let tablesInCurrentRow = 0; 
+
+        // ⭐ 修正: 定義基本 URL 以解決 fetch 錯誤 ⭐
+        const BASE_URL = window.location.origin;
+        const MAX_SEATS_PER_BOOKING = 3; // ⭐ 新增: 最大預訂數為 3 ⭐
+
+
+        // 1. Fetch Seating Status and Render Map (獲取座位狀態並渲染地圖)
+        async function fetchAndUpdateSeats() {
+            try {
+                // 使用絕對 URL 修正錯誤
+                const response = await fetch(`${BASE_URL}/api/status`);
+                
+                // ⭐ CRITICAL FIX: 檢查狀態碼，防止解析 HTML 錯誤 ⭐
+                if (!response.ok) {
+                    // 伺服器返回非 200 狀態碼 (例如 500)，拋出錯誤
+                    const errorText = await response.text();
+                    console.error("Server Error Response:", errorText.substring(0, 100)); // 打印部分 HTML 幫助診斷
+                    throw new Error(`Server returned error status: ${response.status}. Check backend console.`);
+                }
+                
+                const inventory = await response.json();
+                renderSeatingMap(inventory);
+            } catch (error) {
+                messageArea.className = 'error';
+                messageArea.innerHTML = 'Cannot connect to the server. Please try again later. Check console for details.';
+                console.error('Error fetching data:', error);
+            }
+        }
+        
+        // 2. Render Seating Cards (渲染座位卡片)
+        function renderSeatingMap(inventory) {
+            seatingMap.innerHTML = ''; 
+            let totalLeft = 0; 
+            
+            // ⭐ 修正: 在函數開頭重置 tablesInCurrentRow，確保每次刷新時都從第一排開始計算 ⭐
+            tablesInCurrentRow = 0; 
+            
+            // ⭐ 修正: 將 inventory 轉換為數組，以便我們可以使用索引來計算走道 ⭐
+            const tablesArray = Object.entries(inventory);
+            let globalTableCount = 0;
+
+            for (const [tableId, info] of tablesArray) {
+                
+                const isFull = info.seats_left === 0;
+                const zoneParts = info.zone.split(' ');
+                const zoneClass = zoneParts[0] + zoneParts[1]; 
+                
+                const card = document.createElement('div');
+                let cardClass = `table-card ${zoneClass} ${isFull ? 'full' : ''}`;
+                let reserveBtnText = 'Reserve';
+                let buttonStyle = 'background-color:#4CAF50';
+                
+                card.className = cardClass;
+                card.dataset.tableId = tableId; 
+
+                // 構建卡片內容 
+                card.innerHTML = `
+                    <h2>${tableId}</h2>
+                    <div class="seats-info">${info.seats_left} / Total ${info.total} Seats Left</div>
+                    <div style="margin-top: 5px;">
+                        <button class="reserve-btn" data-table-id="${tableId}" style="${buttonStyle}; color:white; border:none; padding: 5px 8px; border-radius:3px; cursor:pointer; font-size:0.7em;">${reserveBtnText}</button>
+                    </div>
+                `;
+                
+                // 只有在未滿的情況下，才啟用預訂按鈕的點擊事件
+                if (!isFull) {
+                    const reserveButton = card.querySelector('.reserve-btn');
+                    reserveButton.onclick = (e) => {
+                        e.stopPropagation(); 
+                        showReservationModal(tableId, info.seats_left);
+                    };
+                    card.style.cursor = 'pointer'; 
+                } else {
+                     card.querySelector('.reserve-btn').disabled = true;
+                     card.querySelector('.reserve-btn').style.opacity = 0.5;
+                     card.style.cursor = 'not-allowed';
+                }
+                
+                seatingMap.appendChild(card);
+                totalLeft += info.seats_left; 
+                tablesInCurrentRow++; 
+                globalTableCount++;
+                
+                // ⭐ 關鍵邏輯：在每 6 張桌子之後，插入走道 ⭐
+                if (tablesInCurrentRow % 6 === 0) { 
+                    if (tablesInCurrentRow % 12 !== 0) { // 確保不是在第 12, 24, ... 張桌子後插入
+                         const aisle = document.createElement('div');
+                         aisle.className = 'aisle';
+                         seatingMap.appendChild(aisle);
+                    }
+                }
+                
+                // 換行處理：每 12 張桌子重置 tablesInCurrentRow 計數器
+                if (tablesInCurrentRow === 12) {
+                     tablesInCurrentRow = 0; // 重置到下一排
+                }
+            }
+            document.getElementById('total-seats-left').textContent = totalLeft; 
+        }
+        
+        // ⭐ 3. 顯示單一預訂模態框 (替換所有 prompt()) ⭐
+        function showReservationModal(tableId, seatsLeft) {
+            currentTableId = tableId;
+            currentSeatsLeft = seatsLeft;
+            
+            // 重置輸入欄位和錯誤訊息
+            document.getElementById('employeeName').value = '';
+            document.getElementById('loginID').value = '';
+            modalErrorMessage.style.display = 'none';
+
+            // 更新模態框內容
+            document.getElementById('modal-title').textContent = `Reserve Seat(s) at Table ${tableId}`;
+            document.getElementById('modal-seats-info').textContent = `Available: ${seatsLeft} seats`;
+            
+            // 限制座位數選項
+            const seatsSelect = document.getElementById('seatsToTake');
+            seatsSelect.innerHTML = '';
+            const maxSelectable = Math.min(MAX_SEATS_PER_BOOKING, seatsLeft); 
+            for (let i = 1; i <= maxSelectable; i++) {
+                const option = document.createElement('option');
+                option.value = i;
+                option.textContent = i;
+                seatsSelect.appendChild(option);
+            }
+            
+            modal.style.display = 'block';
+        }
+        
+        // 4. Handle Reservation Logic (處理預訂邏輯)
+        confirmReservationBtn.onclick = () => {
+            const employeeName = document.getElementById('employeeName').value.trim();
+            const loginID = document.getElementById('loginID').value.trim();
+            const seatsToTakeStr = document.getElementById('seatsToTake').value;
+            const seatsToTake = parseInt(seatsToTakeStr);
+            
+            // Validation (驗證)
+            if (!employeeName || !loginID || loginID.length === 0) {
+                modalErrorMessage.textContent = 'Please enter Full Name and Login ID.';
+                modalErrorMessage.style.display = 'block';
+                return;
+            }
+            
+            // ⭐ 關鍵修正：驗證最大預訂數為 MAX_SEATS_PER_BOOKING (3) ⭐
+            if (seatsToTake < 1 || seatsToTake > MAX_SEATS_PER_BOOKING || seatsToTake > currentSeatsLeft) {
+                modalErrorMessage.textContent = `Invalid seat count. Max available: ${currentSeatsLeft} / Max per booking: ${MAX_SEATS_PER_BOOKING}.`;
+                modalErrorMessage.style.display = 'block';
+                return;
+            }
+            
+            // Close modal and send request
+            modal.style.display = 'none';
+            sendReservationRequest(currentTableId, seatsToTake, employeeName, loginID);
+        };
+        
+        // 5. Send Reservation Request to Backend (發送預訂請求)
+        async function sendReservationRequest(tableId, seatsToTake, employeeName, loginID) {
+            try {
+                // 使用絕對 URL 修正錯誤
+                const response = await fetch(`${BASE_URL}/api/reserve`, {
+                    method: 'POST',
+                    headers: {
+                        'Content-Type': 'application/json'
+                    },
+                    body: JSON.stringify({
+                        table_id: tableId,
+                        seats_to_take: seatsToTake,
+                        employee_name: employeeName,
+                        login_id: loginID
+                    })
+                });
+
+                const result = await response.json();
+                
+                if (result.success) {
+                    showMessage(result.message, 'success'); 
+                } else {
+                    showMessage(result.message, 'error'); 
+                }
+
+                fetchAndUpdateSeats(); 
+
+            } catch (error) {
+                showMessage('Network connection failed. Please check the server.', 'error');
+                console.error('Reservation error:', error);
+            }
+        }
+        
+        // 6. Display Message (顯示訊息提示)
+        function showMessage(msg, type) {
+            messageArea.innerHTML = msg;
+            messageArea.className = type;
+            setTimeout(() => {
+                messageArea.innerHTML = '';
+                messageArea.className = '';
+            }, 5000);
+        }
+
+        // Modal Close Handlers (模態框關閉處理)
+        closeBtn.onclick = () => modal.style.display = 'none';
+        cancelModalBtn.onclick = () => modal.style.display = 'none';
+        window.onclick = (event) => {
+            if (event.target == modal) {
+                modal.style.display = 'none';
+            }
+        };
+
+        // --- Application Startup and Interval Update (應用程式啟動與定時更新) ---
+        fetchAndUpdateSeats();
+        setInterval(fetchAndUpdateSeats, 3000); 
+    </script>
+</body>
+</html>

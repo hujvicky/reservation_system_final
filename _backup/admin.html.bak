@@ -1,0 +1,239 @@
+<!DOCTYPE html>
+<html lang="en">
+<head>
+    <meta charset="UTF-8">
+    <meta name="viewport" content="width=device-width, initial-scale=1.0">
+    <title>Admin Panel - Seating System</title>
+    <script src="https://cdn.tailwindcss.com"></script>
+    <link href="https://fonts.googleapis.com/css2?family=Inter:wght@400;700&display=swap" rel="stylesheet">
+    <style>
+        body { font-family: 'Inter', sans-serif; background-color: #f4f4f4; margin: 0; padding: 20px;}
+        h1 { font-size: 2.5em; font-weight: 700; color: #333; text-align: center; margin-bottom: 30px; }
+        .container { max-width: 1200px; margin: 0 auto; background-color: white; padding: 30px; border-radius: 12px; box-shadow: 0 4px 10px rgba(0,0,0,0.1); }
+        .action-buttons { display: flex; justify-content: flex-end; margin-bottom: 20px; gap: 15px; }
+        table { width: 100%; border-collapse: collapse; margin-top: 20px; table-layout: fixed; }
+        th, td { border: 1px solid #e0e0e0; padding: 12px 10px; text-align: left; font-size: 0.9em;}
+        th { background-color: #e0f2f7; font-weight: bold; color: #333; }
+        tbody tr:nth-child(even) { background-color: #f9f9f9; }
+        tbody tr:hover { background-color: #d1e7dd; }
+        .no-records { text-align: center; color: #777; padding: 20px; font-size: 1.1em; }
+        .loading-text { text-align: center; color: #777; padding: 20px; font-size: 1.1em; }
+        .cancel-btn { background-color: #f00; color: white; padding: 5px 8px; border-radius: 4px; cursor: pointer; transition: background-color 0.2s; font-size: 0.8em; }
+        .cancel-btn:hover { background-color: #c00; }
+        .status-message { margin-bottom: 15px; padding: 10px; border-radius: 4px; font-weight: 600; display: none; }
+        .status-success { background-color: #d4edda; color: #155724; border: 1px solid #c3e6cb; }
+        .status-error { background-color: #f8d7da; color: #721c24; border: 1px solid #f5c6cb; }
+    </style>
+</head>
+<body>
+    <div class="container">
+        <h1>Admin Panel for {{ username }}</h1>
+        
+        <div class="flex justify-between items-center mb-6">
+            <h2 class="text-xl font-bold">Reservation Records (Total: <span id="record-count">0</span>)</h2>
+            <div class="action-buttons">
+                <!-- Go to Seating Map (返回座位圖) -->
+                <a href="/" class="bg-gray-500 hover:bg-gray-700 text-white font-bold py-2 px-4 rounded transition duration-200 text-sm">Go to Seating Map</a>
+                <!-- Export Report Button (匯出報表按鈕) -->
+                <button id="exportReportBtn" class="bg-blue-600 hover:bg-blue-800 text-white font-bold py-2 px-4 rounded transition duration-200 text-sm">
+                    Export Report (CSV)
+                </button>
+                <!-- Logout Button (登出按鈕) -->
+                <a href="/logout" class="bg-red-500 hover:bg-red-700 text-white font-bold py-2 px-4 rounded transition duration-200 text-sm">Logout</a>
+            </div>
+        </div>
+
+        <div id="status-message" class="status-message"></div>
+
+        <div id="reservation-list-container">
+            <p class="loading-text">Loading reservations...</p>
+        </div>
+    </div>
+
+    <script>
+        document.addEventListener('DOMContentLoaded', () => {
+            fetchReservations();
+            document.getElementById('exportReportBtn').addEventListener('click', exportReport);
+        });
+
+        const statusMessageDiv = document.getElementById('status-message');
+        const BASE_URL = window.location.origin;
+
+        // Display Status Message (顯示狀態訊息)
+        function showStatusMessage(message, type) {
+            statusMessageDiv.textContent = message;
+            statusMessageDiv.className = `status-message status-${type}`;
+            statusMessageDiv.style.display = 'block';
+            setTimeout(() => {
+                statusMessageDiv.style.display = 'none';
+            }, 5000);
+        }
+
+        // Fetch Reservations (從 /api/reports 獲取數據)
+        async function fetchReservations() {
+            const container = document.getElementById('reservation-list-container');
+            container.innerHTML = '<p class="loading-text">Loading reservations...</p>';
+            try {
+                // Fetch reservation data (A3)
+                const response = await fetch(`${BASE_URL}/api/reports`);
+                if (response.status === 401) {
+                    container.innerHTML = '<p class="status-error">Access Denied. Please log in again.</p>';
+                    return;
+                }
+                const reservations = await response.json();
+                renderReservationTable(reservations);
+            } catch (error) {
+                console.error('Error fetching reservations:', error);
+                container.innerHTML = '<p class="status-error">Failed to load reservation data. Check server connection.</p>';
+            }
+        }
+
+        // Render Reservation Table (渲染訂位表格)
+        function renderReservationTable(reservations) {
+            const container = document.getElementById('reservation-list-container');
+            document.getElementById('record-count').textContent = reservations.length;
+
+            if (reservations.length === 0) {
+                container.innerHTML = '<p class="no-records">No reservation records found yet.</p>';
+                return;
+            }
+
+            let tableHTML = `
+                <table class="min-w-full bg-white">
+                    <thead>
+                        <tr>
+                            <th style="width: 5%;">ID</th>
+                            <th style="width: 10%;">Table ID</th>
+                            <th style="width: 15%;">Login ID</th>
+                            <th style="width: 25%;">Employee Name</th>
+                            <th style="width: 10%;">Seats Reserved</th>
+                            <th style="width: 20%;">Timestamp (UTC)</th>
+                            <th style="width: 15%;">Action</th>
+                        </tr>
+                    </thead>
+                    <tbody>
+            `;
+
+            reservations.forEach(res => {
+                // Handle single quote in employee_name for JavaScript safety
+                const safeEmployeeName = (res.employee_name || 'N/A').replace(/'/g, "\\'"); 
+
+                tableHTML += `
+                    <tr>
+                        <td>${res.id}</td>
+                        <td>${res.table_id}</td>
+                        <td>${res.login_id}</td>
+                        <td>${res.employee_name}</td>
+                        <td><span id="seats-reserved-${res.id}">${res.seats_taken}</span></td>
+                        <td>${res.timestamp}</td>
+                        <td class="text-center">
+                            <!-- Button to trigger cancellation modal -->
+                            <button onclick="handleCancellation(${res.id}, '${safeEmployeeName}', ${res.seats_taken})" 
+                                    class="bg-red-500 hover:bg-red-700 text-white text-sm py-1 px-3 rounded transition duration-200">
+                                Cancel
+                            </button>
+                        </td>
+                    </tr>
+                `;
+            });
+
+            tableHTML += `
+                    </tbody>
+                </table>
+            `;
+            container.innerHTML = tableHTML;
+        }
+
+        // Handle Report Export (處理報表匯出 A4)
+        async function exportReport() {
+            const button = document.getElementById('exportReportBtn');
+            const originalText = button.textContent;
+            button.textContent = 'Exporting...';
+            button.disabled = true;
+
+            try {
+                // Trigger backend export API
+                const response = await fetch(`${BASE_URL}/api/export-report`);
+                if (response.ok) {
+                    const blob = await response.blob();
+                    const url = window.URL.createObjectURL(blob);
+                    const a = document.createElement('a');
+                    a.style.display = 'none';
+                    a.href = url;
+                    // Extract filename from Content-Disposition header
+                    a.download = response.headers.get('Content-Disposition')?.split('filename=')[1]?.replace(/"/g, '') || 'reservation_report.csv';
+                    document.body.appendChild(a);
+                    a.click();
+                    window.URL.revokeObjectURL(url);
+                    showStatusMessage('Reservation report exported successfully!', 'success');
+                } else {
+                    const errorData = await response.json();
+                    showStatusMessage(`Failed to export report: ${errorData.message || 'Server error.'}`, 'error');
+                }
+            } catch (error) {
+                console.error('Error exporting report:', error);
+                showStatusMessage('An error occurred during report export.', 'error');
+            } finally {
+                button.textContent = originalText;
+                button.disabled = false;
+            }
+        }
+        
+        // --- Cancellation Logic (取消邏輯 A5) ---
+
+        // Confirmation Prompt for Cancellation
+        function handleCancellation(reservationId, employeeName, seatsTaken) {
+            // 1. Get number of seats to cancel
+            const cancelCountStr = prompt(
+                `Cancel reservation for ${employeeName} (ID: ${reservationId}).\n` +
+                `How many seats do you want to cancel? (Reserved: ${seatsTaken})`
+            );
+
+            if (cancelCountStr === null || cancelCountStr.trim() === '') return;
+
+            const cancelCount = parseInt(cancelCountStr);
+            
+            // 2. Input validation
+            if (isNaN(cancelCount) || cancelCount <= 0 || cancelCount > seatsTaken) {
+                alert(`Invalid cancellation count: Please enter a number between 1 and ${seatsTaken}.`);
+                return;
+            }
+
+            // 3. Secondary confirmation
+            if (confirm(`Confirm to cancel ${cancelCount} seat(s) from Reservation ID: ${reservationId}?`)) {
+                sendAdminCancellationRequest(reservationId, cancelCount);
+            }
+        }
+
+        // Send Cancellation Request to Backend
+        async function sendAdminCancellationRequest(reservationId, seatsToCancel) {
+            try {
+                const response = await fetch(`${BASE_URL}/api/admin-cancel`, {
+                    method: 'POST',
+                    headers: {
+                        'Content-Type': 'application/json'
+                    },
+                    body: JSON.stringify({
+                        reservation_id: reservationId,
+                        seats_to_cancel: seatsToCancel 
+                    })
+                });
+                
+                const result = await response.json();
+                
+                if (result.success) {
+                    showStatusMessage(`✅ Cancellation Successful! ${result.message}`, 'success');
+                } else {
+                    showStatusMessage(`❌ Cancellation Failed! ${result.message}`, 'error');
+                }
+
+                fetchReservations(); // Refresh table immediately
+
+            } catch (error) {
+                console.error('Cancellation error:', error);
+                showStatusMessage('Network connection failed. Please check the server status.', 'error');
+            }
+        }
+    </script>
+</body>
+</html>

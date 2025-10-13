@@ -1,0 +1,45 @@
+<!DOCTYPE html>
+<html lang="en">
+<head>
+    <meta charset="UTF-8">
+    <meta name="viewport" content="width=device-width, initial-scale=1.0">
+    <title>Admin Login</title>
+    <script src="https://cdn.tailwindcss.com"></script>
+    <style>
+        body { background-color: #e2e8f0; display: flex; justify-content: center; align-items: center; min-height: 100vh; }
+        .login-card { background-color: white; padding: 40px; border-radius: 12px; box-shadow: 0 10px 25px rgba(0,0,0,0.1); width: 100%; max-width: 400px; text-align: center; }
+        .input-group label { text-align: left; display: block; margin-bottom: 5px; font-weight: 600; }
+        .input-group input { width: 100%; padding: 12px; margin-bottom: 20px; border: 1px solid #ccc; border-radius: 6px; box-sizing: border-box; }
+        .error-message { background-color: #fca5a5; color: #991b1b; padding: 10px; border-radius: 4px; margin-bottom: 20px; font-weight: 500; }
+        .admin-info { margin-top: 20px; font-size: 0.85em; color: #4b5563; }
+    </style>
+</head>
+<body>
+    <div class="login-card">
+        <h1 class="text-3xl font-bold mb-6 text-gray-800">Admin Login</h1>
+        
+        {% if error %}
+            <div class="error-message">{{ error }}</div>
+        {% endif %}
+        
+        <form method="POST" action="{{ url_for('login') }}">
+            <div class="input-group">
+                <label for="username">Username:</label>
+                <input type="text" id="username" name="username" required>
+            </div>
+            <div class="input-group">
+                <label for="password">Password:</label>
+                <input type="password" id="password" name="password" required>
+            </div>
+            <button type="submit" class="bg-indigo-600 hover:bg-indigo-700 text-white font-bold py-3 w-full rounded-lg transition duration-200">
+                Log In
+            </button>
+        </form>
+        
+        <div class="admin-info">
+            <p>Hint: admin / 888888</p>
+            <p class="mt-2"><a href="{{ url_for('index') }}" class="text-indigo-500 hover:text-indigo-600">← Back to Seating Map</a></p>
+        </div>
+    </div>
+</body>
+</html>

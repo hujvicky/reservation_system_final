@@ -1,0 +1,301 @@
+from flask import Flask, jsonify, request, render_template, send_file, redirect, session, url_for
+from flask_sqlalchemy import SQLAlchemy
+from models import db, SeatingTable, ReservationRecord
+from datetime import datetime, date, timedelta
+from functools import wraps
+from export import export_data_to_csv, OUTPUT_FILENAME 
+
+# 建立 Flask 應用程式實例
+app = Flask(__name__)
+
+# --- 1. 配置設定 ---
+app.config['SQLALCHEMY_DATABASE_URI'] = 'sqlite:///db.sqlite3' 
+app.config['SQLALCHEMY_TRACK_MODIFICATIONS'] = False 
+app.config['SECRET_KEY'] = 'YOUR_SESSION_SECRET_KEY_888888' 
+db.init_app(app) 
+
+# --- 2. 管理員與座位數據設定 ---
+ADMIN_USERNAME = 'admin'
+ADMIN_PASSWORD = '888888' 
+
+# 2.1. 📌 座位數據自動生成邏輯 (108 桌佈局)
+INITIAL_SEATING_DATA = {}
+
+TOTAL_ROWS = 9
+TABLES_PER_ROW = 12 # 總共 12 桌 (左 6 + 右 6)
+SEATS_PER_TABLE = 10 # 每桌 10 個座位
+
+ZONE_CONFIGS = [
+    {"name": "Zone A (Stage View)", "rows": 3, "color_class": "ZoneA"},
+    {"name": "Zone B (Mid-hall)", "rows": 3, "color_class": "ZoneB"},
+    {"name": "Zone C (Back)", "rows": 3, "color_class": "ZoneC"},
+]
+
+current_table_num = 1
+
+# 根據 ZONE_CONFIGS 生成 108 張桌子
+for config in ZONE_CONFIGS:
+    zone_name = config["name"]
+    for _ in range(config["rows"]):
+        for _ in range(TABLES_PER_ROW):
+            table_id = f"T{current_table_num:03d}" 
+            INITIAL_SEATING_DATA[table_id] = {
+                "zone": zone_name,
+                "total": SEATS_PER_TABLE
+            }
+            current_table_num += 1
+
+# --- 3. 認證裝飾器 (不變) ---
+def login_required(f):
+    @wraps(f)
+    def decorated_function(*args, **kwargs):
+        if not session.get('logged_in'):
+            return redirect(url_for('login'))
+        return f(*args, **kwargs)
+    return decorated_function
+
+
+# ===============================================
+#                 路由定義
+# ===============================================
+
+# --- R1: 首頁 / 員工介面 (不變) ---
+@app.route('/')
+def index():
+    return render_template('index.html')
+
+# --- R2, R3, R4 登入/登出/管理員/公開查詢頁面 (不變) ---
+@app.route('/login', methods=['GET', 'POST'])
+def login():
+    if request.method == 'POST':
+        username = request.form.get('username')
+        password = request.form.get('password')
+        
+        if username == ADMIN_USERNAME and password == ADMIN_PASSWORD:
+            session['logged_in'] = True
+            session['username'] = username
+            return redirect(url_for('admin_panel'))
+        else:
+            return render_template('login.html', error='Invalid credentials.')
+    
+    if session.get('logged_in'):
+        return redirect(url_for('admin_panel'))
+
+    return render_template('login.html')
+
+@app.route('/logout')
+def logout():
+    session.pop('logged_in', None)
+    return redirect(url_for('login'))
+
+
+@app.route('/admin')
+@login_required 
+def admin_panel():
+    return render_template('admin.html', username=session.get('username')) 
+
+@app.route('/records')
+def public_records_panel():
+    return render_template('reports.html') 
+
+
+# --- A1: 座位狀態 API (公開) ---
+@app.route('/api/status', methods=['GET'])
+def get_seating_status():
+    with app.app_context():
+        tables = SeatingTable.query.all()
+        seating_inventory = {table.table_id: table.to_dict() for table in tables}
+        return jsonify(seating_inventory)
+
+
+# --- A2: 預訂 API (公開 - 單一 Login ID 唯一) ---
+@app.route('/api/reserve', methods=['POST'])
+def reserve_seats():
+    data = request.get_json()
+    table_id = data.get('table_id')
+    seats_to_take_raw = data.get('seats_to_take') # 📌 接收原始數據
+    employee_name = data.get('employee_name') 
+    login_id = data.get('login_id')
+    
+    # 📌 修正：強制轉換為整數，避免 isinstance 錯誤
+    try:
+        seats_to_take = int(seats_to_take_raw)
+    except (ValueError, TypeError):
+        return jsonify({"success": False, "message": "Invalid seat count provided."}), 400
+
+
+    if not all([table_id, seats_to_take, login_id]):
+        return jsonify({"success": False, "message": "Incomplete request data. Please provide table ID, number of seats, and Login ID."}), 400
+    if not 1 <= seats_to_take <= 4:
+        return jsonify({"success": False, "message": "The number of seats to reserve must be between 1 and 4."}), 400
+
+    try:
+        with app.app_context():
+            
+            existing_reservation = ReservationRecord.query.filter_by(login_id=login_id).first()
+            if existing_reservation:
+                return jsonify({
+                    "success": False, 
+                    "message": f"Reservation failed: Login ID '{login_id}' has already reserved a seat at Table {existing_reservation.table_id}. Duplicated reservations are not allowed.",
+                    "status": "DUPLICATE_ENTRY"
+                }), 409
+
+            table = db.session.query(SeatingTable).filter_by(table_id=table_id).with_for_update().first()
+
+            if not table:
+                return jsonify({"success": False, "message": f"Table ID {table_id} not found."}), 404
+            if table.seats_left < seats_to_take:
+                return jsonify({
+                    "success": False, 
+                    "message": f"Reservation failed: Only {table.seats_left} seat(s) left at Table {table_id}, which is less than {seats_to_take} requested.",
+                    "seats_left": table.seats_left
+                }), 409
+
+            table.seats_left -= seats_to_take
+            new_reservation = ReservationRecord(
+                table_id=table_id,
+                login_id=login_id,
+                employee_name=employee_name,
+                seats_taken=seats_to_take
+            )
+            db.session.add(new_reservation)
+            db.session.commit()
+            
+            success_message = f"Success! {employee_name} ({login_id}) reserved {seats_to_take} seat(s) at Table {table_id}."
+
+            return jsonify({
+                "success": True,
+                "message": success_message,
+                "seats_left": table.seats_left
+            })
+
+    except Exception as e:
+        db.session.rollback()
+        print(f"資料庫錯誤: {e}")
+        return jsonify({"success": False, "message": "Internal server error. Reservation failed."}), 500
+
+
+# --- A3: 預訂報表 API (需保護！) ---
+@app.route('/api/reports', methods=['GET'])
+@login_required 
+def get_reservation_reports():
+    filter_type = request.args.get('filter', 'all') 
+    
+    with app.app_context():
+        query = ReservationRecord.query
+        
+        if filter_type == 'yesterday':
+            yesterday = date.today() - timedelta(days=1)
+            start_of_yesterday = datetime.combine(yesterday, datetime.min.time())
+            end_of_yesterday = datetime.combine(yesterday, datetime.max.time())
+            query = query.filter(ReservationRecord.timestamp >= start_of_yesterday, ReservationRecord.timestamp <= end_of_yesterday)
+        elif filter_type == 'today':
+            today = date.today()
+            start_of_today = datetime.combine(today, datetime.min.time())
+            end_of_today = datetime.combine(today, datetime.max.time())
+            query = query.filter(ReservationRecord.timestamp >= start_of_today, ReservationRecord.timestamp <= end_of_day)
+        
+        all_reservations = query.all()
+        report_data = [record.to_dict() for record in all_reservations]
+
+        return jsonify(report_data)
+
+
+# --- A4, A5 (不變) ---
+@app.route('/api/export-report', methods=['GET'])
+@login_required 
+def export_report_api():
+    try:
+        export_data_to_csv() 
+        return send_file(OUTPUT_FILENAME, as_attachment=True)
+
+    except Exception as e:
+        print(f"Error exporting report: {e}")
+        return jsonify({"success": False, "message": "Failed to export report."}), 500
+
+@app.route('/api/admin-cancel', methods=['POST'])
+@login_required 
+def admin_cancel_seats():
+    data = request.get_json()
+    reservation_id = data.get('reservation_id')
+    seats_to_cancel = data.get('seats_to_cancel', 0) 
+    
+    if not reservation_id or not isinstance(seats_to_cancel, int) or seats_to_cancel <= 0:
+        return jsonify({"success": False, "message": "Incomplete or invalid request data. Must provide Reservation ID and a positive integer for seats_to_cancel."}), 400
+
+    try:
+        with app.app_context():
+            reservation_to_cancel = db.session.query(ReservationRecord).filter_by(id=reservation_id).with_for_update().first() 
+
+            if not reservation_to_cancel:
+                db.session.rollback()
+                return jsonify({"success": False, "message": f"Cancellation failed: Reservation ID {reservation_id} not found."}), 404
+
+            current_seats = reservation_to_cancel.seats_taken
+            table_id = reservation_to_cancel.table_id
+
+            if seats_to_cancel > current_seats:
+                db.session.rollback()
+                return jsonify({
+                    "success": False, 
+                    "message": f"Cancellation failed: Cannot cancel {seats_to_cancel} seats. Only {current_seats} seats were originally reserved (ID:{reservation_id})."
+                }), 409
+            
+            table = db.session.query(SeatingTable).filter_by(table_id=table_id).with_for_update().first()
+            
+            table.seats_left += seats_to_cancel
+            new_seats_taken = current_seats - seats_to_cancel
+
+            if new_seats_taken == 0:
+                db.session.delete(reservation_to_cancel)
+                action_message = f"deleted (full cancellation)."
+            else:
+                reservation_to_cancel.seats_taken = new_seats_taken
+                action_message = f"updated to {new_seats_taken} seat(s)."
+
+            db.session.commit()
+            
+            success_message = (
+                f"Admin successfully cancelled {seats_to_cancel} seat(s) from Reservation ID:{reservation_id}. "
+                f"The reservation record was {action_message}."
+            )
+
+            return jsonify({
+                "success": True,
+                "message": success_message,
+                "reservation_id": reservation_id,
+                "new_seats_taken": new_seats_taken,
+                "seats_left": table.seats_left 
+            })
+
+    except Exception as e:
+        db.session.rollback()
+        print(f"資料庫錯誤: {e}")
+        return jsonify({"success": False, "message": "Internal server error. Cancellation failed."}), 500
+
+
+# --- 9. 資料庫初始化函數 (不變) ---
+def initialize_database():
+    """創建資料庫並寫入初始座位數據"""
+    with app.app_context():
+        db.create_all()
+        
+        if SeatingTable.query.count() == 0:
+            print("--- Initializing seating data... ---")
+            for table_id, data in INITIAL_SEATING_DATA.items():
+                table = SeatingTable(
+                    table_id=table_id,
+                    zone=data['zone'],
+                    total_seats=data['total'],
+                    seats_left=data['total']
+                )
+                db.session.add(table)
+            db.session.commit()
+            print("--- Seating data initialization complete! ---")
+        else:
+            print("--- Seating data already exists in database. Skipping initialization. ---")
+
+# --- 10. 啟動伺服器 (不變) ---
+if __name__ == '__main__':
+    initialize_database() 
+    app.run(host='0.0.0.0', debug=True)

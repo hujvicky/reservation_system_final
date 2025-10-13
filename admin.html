@@ -1,0 +1,99 @@
+<!DOCTYPE html>
+<html lang="en">
+<head>
+  <meta charset="UTF-8">
+  <meta name="viewport" content="width=device-width, initial-scale=1.0">
+  <title>Admin Panel • Reservations</title>
+  <script src="https://cdn.tailwindcss.com"></script>
+</head>
+<body class="bg-gray-50 p-6">
+  <div class="max-w-7xl mx-auto">
+    <div class="flex items-center justify-between mb-4">
+      <h1 class="text-2xl font-bold">Admin Panel</h1>
+      <div class="flex gap-3">
+        <a href="/index.html" class="px-3 py-2 rounded bg-gray-200 hover:bg-gray-300">Go to Seating Map</a>
+        <a href="/api/reservations.csv" class="px-3 py-2 rounded bg-indigo-600 text-white hover:bg-indigo-700">Export Report (CSV)</a>
+        <a href="/login.html" class="px-3 py-2 rounded bg-red-500 text-white hover:bg-red-600">Logout</a>
+      </div>
+    </div>
+
+    <div class="bg-white rounded-xl shadow p-4">
+      <div class="text-lg font-semibold mb-3" id="title">Reservation Records</div>
+      <div class="overflow-x-auto">
+        <table class="min-w-full text-sm">
+          <thead>
+            <tr class="bg-gray-100 text-gray-700">
+              <th class="px-3 py-2 text-left">ID</th>
+              <th class="px-3 py-2 text-left">Table ID</th>
+              <th class="px-3 py-2 text-left">Login ID</th>
+              <th class="px-3 py-2 text-left">Employee Name</th>
+              <th class="px-3 py-2 text-left">Seats Reserved</th>
+              <th class="px-3 py-2 text-left">Timestamp (Local)</th>
+              <th class="px-3 py-2 text-left">Action</th>
+            </tr>
+          </thead>
+          <tbody id="rows"></tbody>
+        </table>
+      </div>
+    </div>
+  </div>
+
+  <script>
+    function fmtTableId(n){ return 'T' + String(n).padStart(3,'0'); }
+
+    async function load(){
+      const r = await fetch('/api/reservations?page=1&page_size=500');
+      const { data } = await r.json();
+      document.getElementById('title').textContent = `Reservation Records (Total: ${data.length})`;
+      const rows = data.map((d, idx) => {
+        const ts = new Date(d.created_at).toLocaleString();
+        const canReduceMax = Math.max(0, Number(d.seats_taken) - 1);
+        const reduceSelect = canReduceMax > 0
+          ? `<select class="border rounded px-2 py-1" data-reduce-select="${d.id}">
+               ${Array.from({length: canReduceMax}, (_,i)=>`<option value="${i+1}">${i+1}</option>`).join('')}
+             </select>
+             <button class="ml-2 px-3 py-1 rounded bg-gray-200 hover:bg-gray-300" data-reduce="${d.id}" data-max="${canReduceMax}">Reduce</button>`
+          : `<span class="text-gray-400">—</span>`;
+
+        return `<tr class="${idx%2?'bg-gray-50':''}">
+          <td class="px-3 py-2">${idx+1}</td>
+          <td class="px-3 py-2 font-medium">${fmtTableId(d.table_id)}</td>
+          <td class="px-3 py-2">${d.login_id||''}</td>
+          <td class="px-3 py-2">${d.employee_name||''}</td>
+          <td class="px-3 py-2">${d.seats_taken}</td>
+          <td class="px-3 py-2">${ts}</td>
+          <td class="px-3 py-2">
+            <div class="flex items-center gap-2">
+              ${reduceSelect}
+              <button class="px-3 py-1 rounded bg-red-500 text-white hover:bg-red-600" data-cancel="${d.id}">Cancel</button>
+            </div>
+          </td>
+        </tr>`;
+      }).join('');
+      document.getElementById('rows').innerHTML = rows;
+
+      document.querySelectorAll('[data-cancel]').forEach(btn=>{
+        btn.addEventListener('click', async ()=>{
+          const id = btn.getAttribute('data-cancel');
+          if(!confirm('Cancel this reservation entirely?')) return;
+          await fetch('/api/cancel', {method:'POST', headers:{'Content-Type':'application/json'}, body: JSON.stringify({reservation_id:id})});
+          load();
+        });
+      });
+      document.querySelectorAll('[data-reduce]').forEach(btn=>{
+        btn.addEventListener('click', async ()=>{
+          const id = btn.getAttribute('data-reduce');
+          const sel = document.querySelector(`[data-reduce-select="${id}"]`);
+          const n = Number(sel && sel.value);
+          if(!n || n < 1){ alert('Select a number to reduce.'); return; }
+          const res = await fetch('/api/reduce', {method:'POST', headers:{'Content-Type':'application/json'}, body: JSON.stringify({reservation_id:id, reduce_by:n})});
+          const data = await res.json();
+          if(!data.success){ alert(data.message || 'Failed to reduce.'); return; }
+          load();
+        });
+      });
+    }
+    load();
+  </script>
+</body>
+</html>
