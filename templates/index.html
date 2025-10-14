@@ -40,9 +40,9 @@
   </style>
 </head>
 <body class="bg-gray-100 min-h-screen py-8">
-  <div class="max-w-screen-xl mx-auto px-4">
+  <div class="w-full flex flex-col items-center">
   <!-- ===== Sticky Top Bar (View All Reservations + STAGE + 空白) ===== -->
-  <div class="sticky full-width-fix top-0 z-50 bg-gray-100/95 backdrop-blur-md grid grid-cols-3 items-center gap-3 py-3 px-4 shadow-sm mb-4">
+  <div class="full-width-fix bg-gray-100/95 backdrop-blur-md grid grid-cols-3 items-center gap-3 py-3 px-4 shadow-sm mb-4">
     <!-- Left: View All Reservations（取代原本的 Seating Map 位置） -->
     <a href="/reports.html"
        class="justify-self-start text-[26px] text-indigo-600 hover:text-indigo-800 font-semibold underline transition-transform hover:scale-105">
@@ -71,11 +71,11 @@
       <h3 id="reserve-title">Reserve Table <span id="rm-table" style="font-variant-numeric: tabular-nums;"></span></h3>
       <div class="modal-row">
         <label for="rm-login">Login ID</label>
-        <input id="rm-login" type="text" placeholder="your.login@company">
+        <input id="rm-login" type="text" placeholder="panosp">
       </div>
       <div class="modal-row">
         <label for="rm-name">Employee Name</label>
-        <input id="rm-name" type="text" placeholder="Your name">
+        <input id="rm-name" type="text" placeholder="Panos Panay">
       </div>
       <div class="modal-row">
         <label for="rm-seats">Seats</label>
