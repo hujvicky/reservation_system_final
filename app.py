@@ -11,7 +11,8 @@ import os, shutil, io, csv, datetime as dt
 PROJECT_DIR = Path(__file__).resolve().parent
 DATA_DIR = PROJECT_DIR / "data"
 LOCAL_DB_PATH = DATA_DIR / "reservations.db"
-TMP_DB_PATH = Path("/tmp/reservations.db")
+TMP_DIR = Path("/tmp")
+TMP_DB_PATH = TMP_DIR / "reservations.db"
 
 app = Flask(
     __name__,
@@ -23,12 +24,16 @@ CORS(app)
 # === 資料庫設定：自動偵測環境 ===
 DATABASE_URL = os.environ.get("DATABASE_URL")
 if not DATABASE_URL:
+    # ✅ 確保 /tmp 可寫資料夾存在
+    TMP_DIR.mkdir(parents=True, exist_ok=True)
     DATA_DIR.mkdir(exist_ok=True)
+
     # 🔹 App Runner 容器的根目錄是唯讀，複製一份 DB 到 /tmp
     if not TMP_DB_PATH.exists() and LOCAL_DB_PATH.exists():
         shutil.copy(LOCAL_DB_PATH, TMP_DB_PATH)
     elif not LOCAL_DB_PATH.exists():
         print("[⚠️ Warning] 未找到本地 reservations.db，系統會自動建立新資料庫。")
+
     DATABASE_URL = f"sqlite:///{TMP_DB_PATH}"
 
 app.config["SQLALCHEMY_DATABASE_URI"] = DATABASE_URL
@@ -192,4 +197,5 @@ if __name__ == "__main__":
         init_seed()  # 🔹 自動建立資料表（第一次執行）
     except Exception as e:
         print(f"[⚠️ Warning] init_seed skipped due to error: {e}")
-    app.run(host="0.0.0.0", port=8080)
+    port = int(os.getenv("PORT", 8080))
+    app.run(host="0.0.0.0", port=port)
