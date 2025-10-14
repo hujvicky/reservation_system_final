@@ -1,5 +1,5 @@
 # ======================================
-# AWS App Runner 兼容版：保留原功能完整CRUD
+# AWS App Runner 兼容版：保留原功能完整CRUD + 自動偵測可寫DB
 # ======================================
 
 from flask import Flask, request, jsonify, send_file, render_template
@@ -24,6 +24,7 @@ CORS(app)
 DATABASE_URL = os.environ.get("DATABASE_URL")
 if not DATABASE_URL:
     DATA_DIR.mkdir(exist_ok=True)
+    # 🔹 App Runner 容器的根目錄是唯讀，複製一份 DB 到 /tmp
     if not TMP_DB_PATH.exists() and LOCAL_DB_PATH.exists():
         shutil.copy(LOCAL_DB_PATH, TMP_DB_PATH)
     elif not LOCAL_DB_PATH.exists():
@@ -58,21 +59,23 @@ def api_status():
 # === 查詢桌位 ===
 @app.get("/api/tables")
 def api_tables():
-    tables = TableInventory.query.all()
-    return jsonify([
-        {"id": t.id, "name": t.name, "total": t.total, "seats_left": t.seats_left}
-        for t in tables
-    ])
+    with app.app_context():
+        tables = TableInventory.query.all()
+        return jsonify([
+            {"id": t.id, "name": t.name, "total": t.total, "seats_left": t.seats_left}
+            for t in tables
+        ])
 
 
 # === 查詢所有預約 ===
 @app.get("/api/reservations")
 def api_reservations():
-    reservations = Reservation.query.order_by(Reservation.id.desc()).all()
-    return jsonify([
-        {"id": r.id, "name": r.name, "table_id": r.table_id, "seats": r.seats, "created_at": r.created_at.isoformat()}
-        for r in reservations
-    ])
+    with app.app_context():
+        reservations = Reservation.query.order_by(Reservation.id.desc()).all()
+        return jsonify([
+            {"id": r.id, "name": r.name, "table_id": r.table_id, "seats": r.seats, "created_at": r.created_at.isoformat()}
+            for r in reservations
+        ])
 
 
 # === 新增預約 ===
@@ -153,8 +156,9 @@ def api_export():
     output = io.StringIO()
     writer = csv.writer(output)
     writer.writerow(["id", "name", "table_id", "seats", "created_at"])
-    for r in Reservation.query.all():
-        writer.writerow([r.id, r.name, r.table_id, r.seats, r.created_at])
+    with app.app_context():
+        for r in Reservation.query.all():
+            writer.writerow([r.id, r.name, r.table_id, r.seats, r.created_at])
     output.seek(0)
     return send_file(
         io.BytesIO(output.getvalue().encode("utf-8")),
@@ -184,5 +188,8 @@ def reports_page():
 
 # === 主程式 ===
 if __name__ == "__main__":
-    init_seed()
-    app.run(host="0.0.0.0", port=8080, debug=True)
+    try:
+        init_seed()  # 🔹 自動建立資料表（第一次執行）
+    except Exception as e:
+        print(f"[⚠️ Warning] init_seed skipped due to error: {e}")
+    app.run(host="0.0.0.0", port=8080)
