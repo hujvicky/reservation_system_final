@@ -6,10 +6,10 @@ build:
       - pip install -r requirements.txt
 run:
   runtime-version: 3.11.4
-  command: gunicorn --bind 0.0.0.0:8000 app:app
+  command: gunicorn --bind 0.0.0.0:8080 app:app
   network:
-    port: 8000
+    port: 8080
     env: PORT
   env:
     - name: PORT
-      value: "8000"
+      value: "8080"
