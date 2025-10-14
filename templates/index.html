@@ -33,12 +33,25 @@
 </head>
 <body class="bg-gray-100 min-h-screen py-8">
   <div class="max-w-screen-xl mx-auto px-4">
-    <div class="flex items-center justify-between mb-4">
+    <!-- ===== Sticky Top Bar (Seating Map + STAGE + View All Reservations) ===== -->
+    <div class="sticky top-0 z-50 bg-gray-100/95 backdrop-blur-md grid grid-cols-3 items-center gap-3 py-3 px-4 shadow-sm mb-4">
+      <!-- Left: Title -->
       <h1 class="text-xl font-semibold text-gray-800">Seating Map</h1>
-      <a href="/reports.html" class="text-[26px] text-indigo-600 hover:text-indigo-800 font-semibold underline transition-transform hover:scale-105">
+
+      <!-- Center: Stage (centered) -->
+      <div class="justify-self-center">
+        <div class="px-10 py-2 rounded-xl border-2 border-red-500 bg-white font-extrabold tracking-[0.35em] text-red-500 shadow-[inset_0_0_0_4px_rgba(239,68,68,0.15)]">
+          S T A G E
+        </div>
+      </div>
+
+      <!-- Right: Link (right-aligned) -->
+      <a href="/reports.html"
+         class="justify-self-end text-[26px] text-indigo-600 hover:text-indigo-800 font-semibold underline transition-transform hover:scale-105">
         View All Reservations
       </a>
     </div>
+
     <p id="msg" class="text-sm text-gray-600 mb-3"></p>
     <div id="seating-map" aria-label="Seating map"></div>
   </div>
