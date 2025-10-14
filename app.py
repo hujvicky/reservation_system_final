@@ -2,11 +2,12 @@
 # AWS App Runner 兼容版：保留原功能完整CRUD + 自動偵測可寫DB
 # ======================================
 
-from flask import Flask, request, jsonify, send_file, render_template
+from flask import Flask, request, jsonify, send_file, render_template, send_from_directory
 from flask_cors import CORS
 from models import db, TableInventory, Reservation, IdempotencyKey
 from pathlib import Path
 import os, shutil, io, csv, datetime as dt
+
 
 PROJECT_DIR = Path(__file__).resolve().parent
 DATA_DIR = PROJECT_DIR / "data"
@@ -54,6 +55,9 @@ def init_seed():
             db.session.commit()
             print("[✅] Initialized TableInventory data.")
 
+@app.route('/<path:filename>')
+def serve_static(filename):
+    return send_from_directory('templates', filename)
 
 # === 狀態檢查 ===
 @app.get("/api/status")
@@ -199,3 +203,4 @@ if __name__ == "__main__":
         print(f"[⚠️ Warning] init_seed skipped due to error: {e}")
     port = int(os.getenv("PORT", 8080))
     app.run(host="0.0.0.0", port=port)
+
