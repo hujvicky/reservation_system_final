@@ -173,43 +173,63 @@
     });
 
     // Confirm reservation
-    btnConfirm.addEventListener('click', async ()=>{
-      const login=(mLogin.value||'').trim();
-      const name =(mName.value ||'').trim();
-      const seats=Number(mSeats.value || 1);
-      if(!login){ mErr.textContent='Login ID is required.'; return; }
-      if(!name){ mErr.textContent='Employee Name is required.'; return; }
-      if(seats<1 || seats>3){ mErr.textContent='Seats must be 1–3.'; return; }
-      localStorage.setItem('loginId',login);
-      localStorage.setItem('empName',name);
-      localStorage.setItem('seatsPref',String(seats));
-      btnConfirm.disabled=true; mErr.textContent='';
-      try{
-        const r=await fetch('/api/reserve',{
-          method:'POST',
-          headers:{'Content-Type':'application/json','Idempotency-Key':makeIdemKey()},
-          body: JSON.stringify({ table_id: currentTableId, seats_to_take: seats, employee_name: name, login_id: login })
-        });
-        const res=await r.json();
-        if(r.status===409){
-          mErr.textContent='This table was just reserved by someone else. Please choose another table.';
-          await updateCounts();
-          return;
-        }
-        if(!res || !res.success){
-          mErr.textContent=(res && res.message) || 'Reservation failed. Please try again.';
-          return;
-        }
-        closeModal();
-        await updateCounts();
-        showMessage(`Reservation successful! Table ${currentTableId} with ${seats} seat(s).`,'success');
-      }catch(err){
-        console.error(err);
-        mErr.textContent='Network error. Please try again.';
-      }finally{
-        btnConfirm.disabled=false;
-      }
+    // Confirm reservation
+btnConfirm.addEventListener('click', async ()=>{
+  const login=(mLogin.value||'').trim();
+  const name =(mName.value ||'').trim();
+  const seats=Number(mSeats.value || 1);
+  if(!login){ mErr.textContent='Login ID is required.'; return; }
+  if(!name){ mErr.textContent='Employee Name is required.'; return; }
+  if(seats<1 || seats>3){ mErr.textContent='Seats must be 1–3.'; return; }
+
+  localStorage.setItem('loginId',login);
+  localStorage.setItem('empName',name);
+  localStorage.setItem('seatsPref',String(seats));
+
+  btnConfirm.disabled=true; 
+  mErr.textContent='';
+
+  try{
+    const r = await fetch('/api/reserve',{
+      method:'POST',
+      headers:{
+        'Content-Type':'application/json',
+        'Idempotency-Key': makeIdemKey()
+      },
+      // ✅ 同時送 seats 與 seats_to_take，保險寫法
+      body: JSON.stringify({
+        table_id: currentTableId,
+        seats: seats,
+        seats_to_take: seats,
+        employee_name: name,
+        login_id: login
+      })
     });
+
+    let res = null;
+    try { res = await r.json(); } catch (_) {}
+
+    if (!r.ok) {
+      mErr.textContent = (res && (res.message || res.error || res.detail)) || `Error ${r.status} (Bad Request)`;
+      return;
+    }
+
+    if (!res || !res.success){
+      mErr.textContent = (res && (res.message || res.error || res.detail)) || 'Reservation failed. Please try again.';
+      return;
+    }
+
+    closeModal();
+    await updateCounts();
+    showMessage(`Reservation successful! Table ${currentTableId} with ${seats} seat(s).`,'success');
+
+  }catch(err){
+    console.error(err);
+    mErr.textContent='Network error. Please try again.';
+  }finally{
+    btnConfirm.disabled=false;
+  }
+});
   </script>
 </body>
 </html>
