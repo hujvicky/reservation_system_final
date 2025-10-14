@@ -34,31 +34,37 @@
   width: calc(100% + 2rem);   /* 2rem = 左右 padding 各 1rem */
   margin-left: -1rem;         /* 抵銷左側 padding */
   margin-right: -1rem;        /* 抵銷右側 padding */
+  background-color: rgba(243, 244, 246, 0.95); /* 淺灰底稍透明 */
 }
 
   </style>
 </head>
 <body class="bg-gray-100 min-h-screen py-8">
   <div class="max-w-screen-xl mx-auto px-4">
-    <!-- ===== Sticky Top Bar (Seating Map + STAGE + View All Reservations) ===== -->
-    <div class="sticky full-width-fix top-0 z-50 bg-gray-100/95 backdrop-blur-md grid grid-cols-3 items-center gap-3 py-3 px-8 shadow-sm mb-4">
-      <!-- Left: Title -->
-      <h1 class="text-xl font-semibold text-gray-800">Seating Map</h1>
+  <!-- ===== Sticky Top Bar (View All Reservations + STAGE + 空白) ===== -->
+  <div class="sticky full-width-fix top-0 z-50 bg-gray-100/95 backdrop-blur-md grid grid-cols-3 items-center gap-3 py-3 px-4 shadow-sm mb-4">
+    <!-- Left: View All Reservations（取代原本的 Seating Map 位置） -->
+    <a href="/reports.html"
+       class="justify-self-start text-[26px] text-indigo-600 hover:text-indigo-800 font-semibold underline transition-transform hover:scale-105">
+      View All Reservations
+    </a>
 
-      <!-- Center: Stage (centered) -->
-      <div class="justify-self-center">
-        <div class="px-24 py-2 rounded-xl border-2 border-red-500 bg-white font-extrabold tracking-[0.35em] text-red-500 shadow-[inset_0_0_0_4px_rgba(239,68,68,0.15)]">
-          S T A G E
-        </div>
+      <!-- Center: STAGE（置中） -->
+    <div class="justify-self-center">
+      <div class="px-24 py-2 rounded-xl border-2 border-red-500 bg-white font-extrabold tracking-[0.35em] text-red-500 shadow-[inset_0_0_0_4px_rgba(239,68,68,0.15)]">
+        S T A G E
       </div>
+    </div>
 
-      <div class="grid grid-cols-3 items-center gap-3">
-      <a href="/reports.html"
-         class="justify-self-end text-[26px] text-indigo-600 hover:text-indigo-800 font-semibold underline transition-transform hover:scale-105">
-        View All Reservations
-      </a>
+    <!-- Right: 空白（保留以後要放按鈕/Logo 都可） -->
+    <div></div>
   </div>
 
+  <!-- 這兩個一定要存在：訊息列 + 座位圖容器 -->
+  <p id="msg" class="text-sm text-gray-600 mb-3"></p>
+  <div id="seating-map" aria-label="Seating map"></div>
+</div>
+  
   <!-- Reservation Modal -->
   <div id="reserve-modal" class="modal-backdrop" role="dialog" aria-modal="true" aria-labelledby="reserve-title">
     <div class="modal-card">
