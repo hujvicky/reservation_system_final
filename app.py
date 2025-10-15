@@ -6,9 +6,9 @@
 from flask import Flask, request, jsonify, send_file, render_template
 from flask_cors import CORS
 from sqlalchemy import text
-from models import db  # models.py 已定義 tables / reservations / idempotency_keys
+from models import db, TableInventory, Reservation, IdempotencyKey
 from pathlib import Path
-import os, shutil, io, csv, datetime as dt, uuid
+import os, shutil, io, csv, uuid
 
 # ---------- 基本路徑 ----------
 PROJECT_DIR = Path(__file__).resolve().parent
@@ -30,7 +30,8 @@ if not DATABASE_URL:
             print("[INFO] Copied seed DB to /tmp/reservations.db")
         except Exception as e:
             print(f"[WARN] Failed to copy seed DB: {e}")
-    DATABASE_URL = f"sqlite:///{TMP_DB_PATH}"
+    # SQLite 多執行緒一定要加 check_same_thread=false
+    DATABASE_URL = f"sqlite:///{TMP_DB_PATH}?check_same_thread=false"
 
 app.config["SQLALCHEMY_DATABASE_URI"] = DATABASE_URL
 app.config["SQLALCHEMY_TRACK_MODIFICATIONS"] = False
@@ -38,26 +39,39 @@ db.init_app(app)
 
 MAX_PER_BOOKING = 3
 
-
 # ---------- 初始化（建表 & 預設桌位） ----------
 def init_seed():
     with app.app_context():
-        db.create_all()
-        try:
-            existing = db.session.execute(text("SELECT COUNT(*) FROM tables")).scalar()
-        except Exception:
-            existing = 0
-        if not existing:
-            with db.session.begin():
-                for i in range(1, 109):
-                    db.session.execute(
-                        text(
-                            "INSERT INTO tables (id, name, total, seats_left) "
-                            "VALUES (:id, :name, :total, :left)"
-                        ),
-                        {"id": i, "name": f"Table {i}", "total": 10, "left": 10},
-                    )
+        db.create_all()  # 會根據 models.py 建出 tables / reservations / idempotency_keys
+
+        # 空表才 seed；用 INSERT OR IGNORE 避免多 worker 競態
+        cnt = db.session.execute(text("SELECT COUNT(*) FROM tables")).scalar() or 0
+        if cnt == 0:
+            rows = [
+                {"id": i, "name": f"Table {i}", "total": 10, "seats_left": 10}
+                for i in range(1, 109)
+            ]
+            db.session.execute(
+                text(
+                    "INSERT OR IGNORE INTO tables (id, name, total, seats_left) "
+                    "VALUES (:id, :name, :total, :seats_left)"
+                ),
+                rows,
+            )
+            db.session.commit()
             print("[INFO] Initialized tables (1..108).")
+
+        # 啟動自檢：確認三張表都存在
+        names = db.session.execute(
+            text("SELECT name FROM sqlite_master WHERE type='table' ORDER BY name")
+        ).scalars().all()
+        print("[INFO] Tables present:", names)
+
+# ⚠️ App Runner/gunicorn 不會跑 __main__，所以這裡就先執行
+try:
+    init_seed()
+except Exception as e:
+    print(f"[WARN] init_seed skipped: {e}")
 
 
 # ---------- 頁面（保持與前端連結相容） ----------
@@ -81,12 +95,10 @@ def login_page():
 def reports_page():
     return render_template("reports.html")
 
-
 # ---------- 健康檢查 ----------
 @app.get("/health")
 def health():
     return jsonify(ok=True)
-
 
 # ---------- API：座位狀態（index.html 會每 3 秒輪詢） ----------
 @app.get("/api/status")
@@ -96,15 +108,13 @@ def api_status():
     ).mappings().all()
     return jsonify({"tables": [{"table_id": r["id"], "seats_left": r["seats_left"]} for r in rows]})
 
-
-# ---------- API：桌位清單（目前前端沒直接用，但保留） ----------
+# ---------- API：桌位清單 ----------
 @app.get("/api/tables")
 def api_tables():
     rows = db.session.execute(
         text("SELECT id, name, total, seats_left FROM tables ORDER BY id")
     ).mappings().all()
     return jsonify([dict(r) for r in rows])
-
 
 # ---------- API：可用性（回傳滿座桌，index 有用到） ----------
 @app.get("/api/reservations/availability")
@@ -115,15 +125,10 @@ def api_availability():
     confirmed = [{"table_id": r["id"]} for r in rows if r["seats_left"] <= 0]
     return jsonify({"holds": [], "confirmed": confirmed})
 
-
-# ---------- 工具：把 raw row 轉為可被前端 new Date() 的 ISO ----------
+# ---------- 工具：序列化 ----------
 def _row_to_reservation_dict(r):
     created = r["created_at"]
-    if hasattr(created, "isoformat"):
-        created_iso = created.isoformat()
-    else:
-        # 有些方言會回傳字串，確保是 str
-        created_iso = str(created)
+    created_iso = created.isoformat() if hasattr(created, "isoformat") else str(created)
     return {
         "id": r["id"],
         "table_id": r["table_id"],
@@ -133,8 +138,7 @@ def _row_to_reservation_dict(r):
         "created_at": created_iso,
     }
 
-
-# ---------- API：查詢預約（admin/reports 兩頁都用） ----------
+# ---------- API：查詢預約 ----------
 @app.get("/api/reservations")
 def list_reservations():
     table_id = request.args.get("table_id", type=int)
@@ -169,7 +173,6 @@ def list_reservations():
         "page": page,
         "page_size": size
     })
-
 
 # ---------- API：建立預約（index.html 的 Confirm） ----------
 @app.post("/api/reserve")
