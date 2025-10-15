@@ -275,7 +275,7 @@ def reserve():
         # UNIQUE 索引（NOCASE）擋住併發第二筆
         return jsonify(success=False, message="This login_id already has a reservation."), 409
 
-    return jsonify(success=True, message="Reservation confirmed!", reservation_id=rid), 201
+    return jsonify(success=True, message="Reservation confirmed!", reservation_id=rid, table_id=table_id), 201
 
 
 # ---------- API：取消預約（admin.html 的 Cancel） ----------
