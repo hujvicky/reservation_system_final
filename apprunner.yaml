@@ -1,11 +1,15 @@
 version: 1.0
 runtime: python3
 
+env:
+  variables:
+    DATABASE_URL: sqlite:////tmp/app.db?check_same_thread=false
+
 build:
   commands:
     - pip install --no-cache-dir -r requirements.txt
 
 run:
-  command: gunicorn -w 2 -k gthread -b 0.0.0.0:8080 app:app
+  command: gunicorn -w 2 -k gthread --threads 4 --timeout 60 --graceful-timeout 30 -b 0.0.0.0:8080 app:app
   network:
     port: 8080
