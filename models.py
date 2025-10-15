@@ -1,6 +1,5 @@
 from flask_sqlalchemy import SQLAlchemy
 from sqlalchemy import CheckConstraint, func
-from sqlalchemy.dialects.postgresql import UUID
 import uuid
 
 db = SQLAlchemy()
@@ -11,9 +10,7 @@ class TableInventory(db.Model):
     name = db.Column(db.String(64), nullable=True)
     total = db.Column(db.Integer, nullable=False, default=10)
     seats_left = db.Column(db.Integer, nullable=False, default=10)
-    __table_args__ = (
-        CheckConstraint('seats_left >= 0', name='ck_seats_non_negative'),
-    )
+    __table_args__ = (CheckConstraint('seats_left >= 0', name='ck_seats_non_negative'),)
 
 class Reservation(db.Model):
     __tablename__ = "reservations"
