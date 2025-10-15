@@ -221,7 +221,7 @@ btnConfirm.addEventListener('click', async ()=>{
 
     closeModal();
     await updateCounts();
-    showMessage(`Reservation successful! Table ${currentTableId} with ${seats} seat(s).`,'success');
+    showMessage(`Reservation successful! Table ${tableIdJustBooked} with ${seats} seat(s).`,'success');
 
   }catch(err){
     console.error(err);
