@@ -61,7 +61,7 @@
   </div>
 
   <!-- 這兩個一定要存在：訊息列 + 座位圖容器 -->
-  <p id="msg" class="text-sm text-gray-600 mb-3"></p>
+  <p id="msg" class="text-sm text-gray-600 mb-3" aria-live="polite"></p>
   <div id="seating-map" aria-label="Seating map"></div>
 </div>
   
@@ -206,22 +206,30 @@ btnConfirm.addEventListener('click', async ()=>{
       })
     });
 
-    let res = null;
-    try { res = await r.json(); } catch (_) {}
+    // 解析回應（盡量取出訊息/資料）
+    let data=null, text='';
+    try { data = await r.json(); } catch { try { text = await r.text(); } catch {} }
 
     if (!r.ok) {
-      mErr.textContent = (res && (res.message || res.error || res.detail)) || `Error ${r.status} (Bad Request)`;
+      mErr.textContent = (data && (data.message || data.error || data.detail)) || text || `Error ${r.status}`;
       return;
     }
 
-    if (!res || !res.success){
-      mErr.textContent = (res && (res.message || res.error || res.detail)) || 'Reservation failed. Please try again.';
-      return;
-    }
+    // --- 成功分支 ---
+    // 先把桌號存起來，避免 closeModal() 把 currentTableId 清成 null
+    const tableIdJustBooked = currentTableId;
 
     closeModal();
     await updateCounts();
-    showMessage(`Reservation successful! Table ${tableIdJustBooked} with ${seats} seat(s).`,'success');
+
+    // 後端若回傳 table_id 就用，否則退回剛才的桌號
+    const bookedTable = (data && (data.table_id ?? tableIdJustBooked)) || tableIdJustBooked;
+
+    // 英文訊息格式：Reservation successful! <login> reserved Table <table> for <seats> seat(s).
+    showMessage(
+      `Reservation successful! ${login} reserved Table ${bookedTable} for ${seats} seat(s).`,
+      'success'
+    );
 
   }catch(err){
     console.error(err);
