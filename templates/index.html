@@ -1,13 +1,30 @@
 <!DOCTYPE html>
 <html lang="en">
 <head>
-  <meta charset="UTF-8">
-  <meta name="viewport" content="width=device-width, initial-scale=1.0">
+  <meta charset="UTF-8" />
+  <meta name="viewport" content="width=device-width,initial-scale=1.0" />
   <title>Seating Map • Reservations</title>
   <script src="https://cdn.tailwindcss.com"></script>
   <style>
-    #seating-map{display:grid;grid-template-columns:repeat(6,130px) 80px repeat(6,130px);grid-auto-rows:130px;gap:15px;padding:20px;background:#fff;border-radius:12px;box-shadow:0 6px 18px rgba(0,0,0,.08);width:max-content;margin:0 auto}
-    .table-card{width:130px;height:130px;border-radius:50%;border:4px solid;display:flex;align-items:center;justify-content:center;font-weight:700;cursor:pointer;user-select:none;transition:transform .15s ease, box-shadow .15s ease;text-align:center;line-height:1.15;padding:10px}
+    #seating-map{
+      display:grid;
+      grid-template-columns:repeat(6,130px) 80px repeat(6,130px);
+      grid-auto-rows:130px;
+      gap:15px;
+      padding:20px;
+      background:#fff;
+      border-radius:12px;
+      box-shadow:0 6px 18px rgba(0,0,0,.08);
+      width:max-content;
+      margin:0 auto;
+    }
+    .table-card{
+      width:130px;height:130px;border-radius:50%;border:4px solid;
+      display:flex;align-items:center;justify-content:center;
+      font-weight:700;cursor:pointer;user-select:none;
+      transition:transform .15s ease, box-shadow .15s ease;
+      text-align:center;line-height:1.15;padding:10px
+    }
     .table-card:hover{transform:translateY(-2px);box-shadow:0 10px 22px rgba(0,0,0,.08)}
     .aisle{grid-column:7;width:100%;height:100%;min-height:130px;border-left:3px dashed #bbb;border-right:3px dashed #bbb;position:relative}
     .aisle::before{content:'AISLE';position:absolute;top:50%;left:50%;transform:translate(-50%,-50%) rotate(-90deg);font-size:12px;color:#999;letter-spacing:2px}
@@ -29,53 +46,64 @@
     .btn.primary{background:#4f46e5;color:#fff}
     .btn.primary[disabled]{opacity:.6;cursor:not-allowed}
     .count{display:block;font-weight:600;font-size:12px;color:#374151}
-/* 讓吸頂列與座位圖等寬（補回外層 .px-4 的左右間距） */
-.sticky.full-width-fix {
-  width: calc(100% + 2rem);   /* 2rem = 左右 padding 各 1rem */
-  margin-left: -1rem;         /* 抵銷左側 padding */
-  margin-right: -1rem;        /* 抵銷右側 padding */
-  background-color: rgba(243, 244, 246, 0.95); /* 淺灰底稍透明 */
-}
 
+    /* 讓舞台列與頁面等寬（你目前沒有 sticky，就保留 full-width 視覺） */
+    .full-width-fix{
+      width:100%;
+      background-color:rgba(243,244,246,.95);
+    }
   </style>
 </head>
 <body class="bg-gray-100 min-h-screen py-8">
   <div class="w-full flex flex-col items-center">
-  <!-- ===== Sticky Top Bar (View All Reservations + STAGE + 空白) ===== -->
-  <div class="full-width-fix bg-gray-100/95 backdrop-blur-md grid grid-cols-3 items-center gap-3 py-3 px-4 shadow-sm mb-4">
-    <!-- Left: View All Reservations（取代原本的 Seating Map 位置） -->
-    <a href="/reports.html"
-       class="justify-self-start text-[26px] text-indigo-600 hover:text-indigo-800 font-semibold underline transition-transform hover:scale-105">
-      View All Reservations
-    </a>
+    <!-- ===== Top Bar (View All Reservations + STAGE + 空白) ===== -->
+    <div class="full-width-fix grid grid-cols-3 items-center gap-3 py-3 px-4 shadow-sm mb-4">
+      <!-- Left: View All Reservations -->
+      <a href="/reports.html"
+         class="justify-self-start text-[26px] text-indigo-600 hover:text-indigo-800 font-semibold underline transition-transform hover:scale-105">
+        View All Reservations
+      </a>
 
-      <!-- Center: STAGE（置中） -->
-    <div class="justify-self-center">
-      <div class="px-24 py-2 rounded-xl border-2 border-red-500 bg-white font-extrabold tracking-[0.35em] text-red-500 shadow-[inset_0_0_0_4px_rgba(239,68,68,0.15)]">
-        S T A G E
+      <!-- Center: STAGE -->
+      <div class="justify-self-center">
+        <div class="px-24 py-2 rounded-xl border-2 border-red-500 bg-white font-extrabold tracking-[0.35em] text-red-500 shadow-[inset_0_0_0_4px_rgba(239,68,68,0.15)]">
+          S T A G E
+        </div>
       </div>
+
+      <!-- Right: placeholder -->
+      <div></div>
     </div>
 
-    <!-- Right: 空白（保留以後要放按鈕/Logo 都可） -->
-    <div></div>
+    <!-- 訊息列 -->
+    <p id="msg" class="text-sm text-gray-600 mb-3" aria-live="polite"></p>
+
+    <!-- 座位圖 + 入口框 共同容器：寬隨座位圖、置中 -->
+    <div class="mx-auto" style="width:max-content;">
+      <!-- Seating map -->
+      <div id="seating-map" aria-label="Seating map"></div>
+
+      <!-- Entrance / Exit：單桌大小，靠左下 -->
+      <div class="mt-4">
+        <div class="w-[120px] h-[80px] border-4 border-green-600 rounded-md flex flex-col items-center justify-center bg-white shadow-md">
+          <span class="text-green-600 font-bold text-sm tracking-wide leading-none">ENTRANCE</span>
+          <span class="text-gray-500 text-xs leading-none mt-1">/ EXIT</span>
+        </div>
+      </div>
+    </div>
   </div>
 
-  <!-- 這兩個一定要存在：訊息列 + 座位圖容器 -->
-  <p id="msg" class="text-sm text-gray-600 mb-3" aria-live="polite"></p>
-  <div id="seating-map" aria-label="Seating map"></div>
-</div>
-  
   <!-- Reservation Modal -->
   <div id="reserve-modal" class="modal-backdrop" role="dialog" aria-modal="true" aria-labelledby="reserve-title">
     <div class="modal-card">
       <h3 id="reserve-title">Reserve Table <span id="rm-table" style="font-variant-numeric: tabular-nums;"></span></h3>
       <div class="modal-row">
         <label for="rm-login">Login ID</label>
-        <input id="rm-login" type="text" placeholder="panosp">
+        <input id="rm-login" type="text" placeholder="panosp" />
       </div>
       <div class="modal-row">
         <label for="rm-name">Employee Name</label>
-        <input id="rm-name" type="text" placeholder="Panos Panay">
+        <input id="rm-name" type="text" placeholder="Panos Panay" />
       </div>
       <div class="modal-row">
         <label for="rm-seats">Seats</label>
@@ -86,14 +114,6 @@
         <button type="button" class="btn secondary" id="rm-cancel">Cancel</button>
         <button type="button" class="btn primary" id="rm-confirm">Confirm</button>
       </div>
-   <!-- ✅ Entrance Sign (bottom-left corner, one-table size) -->
-<div class="flex justify-start mt-6 w-[130px] ml-[20px]">
-  <div class="w-[120px] h-[80px] border-4 border-green-600 rounded-md flex flex-col items-center justify-center bg-white shadow-md">
-    <span class="text-green-600 font-bold text-sm tracking-wide">ENTRANCE</span>
-    <span class="text-gray-500 text-xs">/ EXIT</span>
-  </div>
-</div>
-      
     </div>
   </div>
 
@@ -113,33 +133,37 @@
       const d=document.createElement('div');
       d.className='table-card';
       d.dataset.tableId=i;
-      d.innerHTML = `<div>Table ${i}<span class="count" data-left="${i}">(10 left)</span></div>`; // default display
+      d.innerHTML=`<div>Table ${i}<span class="count" data-left="${i}">(10 left)</span></div>`;
       const row=Math.ceil(i/PER_ROW);
-      if(row<=3) d.classList.add('row-red'); else if(row<=6) d.classList.add('row-yellow'); else d.classList.add('row-blue');
+      if(row<=3) d.classList.add('row-red');
+      else if(row<=6) d.classList.add('row-yellow');
+      else d.classList.add('row-blue');
       wrap.appendChild(d);
       cnt++;
-      if(cnt%6===0 && cnt%12!==0){const a=document.createElement('div');a.className='aisle';wrap.appendChild(a);}
+      if(cnt%6===0 && cnt%12!==0){
+        const a=document.createElement('div');a.className='aisle';wrap.appendChild(a);
+      }
       if(cnt===12) cnt=0;
     }
 
     // Fetch status and update labels
     async function updateCounts(){
       try{
-        const r = await fetch('/api/status');
+        const r=await fetch('/api/status');
         if(!r.ok) return;
         const { tables } = await r.json();
-        tables.forEach(t => {
-          const card = document.querySelector(`.table-card[data-table-id="${t.table_id}"]`);
-          const span = document.querySelector(`.count[data-left="${t.table_id}"]`);
+        tables.forEach(t=>{
+          const card=document.querySelector(`.table-card[data-table-id="${t.table_id}"]`);
+          const span=document.querySelector(`.count[data-left="${t.table_id}"]`);
           if(card && span){
-            span.textContent = `(${t.seats_left} left)`;
+            span.textContent=`(${t.seats_left} left)`;
             card.classList.toggle('status-disabled', t.seats_left <= 0);
           }
         });
       }catch(e){ /* ignore */ }
     }
     updateCounts();
-    setInterval(updateCounts, 3000);
+    setInterval(updateCounts,3000);
 
     // Idempotency Key
     function makeIdemKey(){
@@ -152,9 +176,9 @@
     const modal=document.getElementById('reserve-modal');
     const mTable=document.getElementById('rm-table');
     const mLogin=document.getElementById('rm-login');
-    const mName =document.getElementById('rm-name');
+    const mName=document.getElementById('rm-name');
     const mSeats=document.getElementById('rm-seats');
-    const mErr  =document.getElementById('rm-error');
+    const mErr=document.getElementById('rm-error');
     const btnCancel=document.getElementById('rm-cancel');
     const btnConfirm=document.getElementById('rm-confirm');
     let currentTableId=null;
@@ -163,7 +187,7 @@
       currentTableId=tableId;
       mTable.textContent=tableId;
       mLogin.value=localStorage.getItem('loginId')||'';
-      mName.value =localStorage.getItem('empName')||'';
+      mName.value=localStorage.getItem('empName')||'';
       mSeats.value=localStorage.getItem('seatsPref')||'1';
       mErr.textContent='';
       modal.classList.add('show');
@@ -181,71 +205,61 @@
     });
 
     // Confirm reservation
-    // Confirm reservation
-btnConfirm.addEventListener('click', async ()=>{
-  const login=(mLogin.value||'').trim();
-  const name =(mName.value ||'').trim();
-  const seats=Number(mSeats.value || 1);
-  if(!login){ mErr.textContent='Login ID is required.'; return; }
-  if(!name){ mErr.textContent='Employee Name is required.'; return; }
-  if(seats<1 || seats>3){ mErr.textContent='Seats must be 1–3.'; return; }
+    btnConfirm.addEventListener('click', async ()=>{
+      const login=(mLogin.value||'').trim();
+      const name=(mName.value||'').trim();
+      const seats=Number(mSeats.value||1);
+      if(!login){ mErr.textContent='Login ID is required.'; return; }
+      if(!name){ mErr.textContent='Employee Name is required.'; return; }
+      if(seats<1 || seats>3){ mErr.textContent='Seats must be 1–3.'; return; }
 
-  localStorage.setItem('loginId',login);
-  localStorage.setItem('empName',name);
-  localStorage.setItem('seatsPref',String(seats));
+      localStorage.setItem('loginId',login);
+      localStorage.setItem('empName',name);
+      localStorage.setItem('seatsPref',String(seats));
 
-  btnConfirm.disabled=true; 
-  mErr.textContent='';
+      btnConfirm.disabled=true;
+      mErr.textContent='';
 
-  try{
-    const r = await fetch('/api/reserve',{
-      method:'POST',
-      headers:{
-        'Content-Type':'application/json',
-        'Idempotency-Key': makeIdemKey()
-      },
-      // ✅ 同時送 seats 與 seats_to_take，保險寫法
-      body: JSON.stringify({
-        table_id: currentTableId,
-        seats: seats,
-        seats_to_take: seats,
-        employee_name: name,
-        login_id: login
-      })
+      try{
+        const r=await fetch('/api/reserve',{
+          method:'POST',
+          headers:{
+            'Content-Type':'application/json',
+            'Idempotency-Key': makeIdemKey()
+          },
+          body: JSON.stringify({
+            table_id: currentTableId,
+            seats: seats,
+            seats_to_take: seats,
+            employee_name: name,
+            login_id: login
+          })
+        });
+
+        let data=null, text='';
+        try{ data=await r.json(); }catch{ try{ text=await r.text(); }catch{} }
+
+        if(!r.ok){
+          mErr.textContent=(data && (data.message||data.error||data.detail)) || text || `Error ${r.status}`;
+          return;
+        }
+
+        // 成功：先記桌號，避免被 closeModal() 清空
+        const tableIdJustBooked=currentTableId;
+
+        closeModal();
+        await updateCounts();
+
+        const bookedTable=(data && (data.table_id ?? tableIdJustBooked)) || tableIdJustBooked;
+        showMessage(`Reservation successful! ${login} reserved Table ${bookedTable} for ${seats} seat(s).`,'success');
+
+      }catch(err){
+        console.error(err);
+        mErr.textContent='Network error. Please try again.';
+      }finally{
+        btnConfirm.disabled=false;
+      }
     });
-
-    // 解析回應（盡量取出訊息/資料）
-    let data=null, text='';
-    try { data = await r.json(); } catch { try { text = await r.text(); } catch {} }
-
-    if (!r.ok) {
-      mErr.textContent = (data && (data.message || data.error || data.detail)) || text || `Error ${r.status}`;
-      return;
-    }
-
-    // --- 成功分支 ---
-    // 先把桌號存起來，避免 closeModal() 把 currentTableId 清成 null
-    const tableIdJustBooked = currentTableId;
-
-    closeModal();
-    await updateCounts();
-
-    // 後端若回傳 table_id 就用，否則退回剛才的桌號
-    const bookedTable = (data && (data.table_id ?? tableIdJustBooked)) || tableIdJustBooked;
-
-    // 英文訊息格式：Reservation successful! <login> reserved Table <table> for <seats> seat(s).
-    showMessage(
-      `Reservation successful! ${login} reserved Table ${bookedTable} for ${seats} seat(s).`,
-      'success'
-    );
-
-  }catch(err){
-    console.error(err);
-    mErr.textContent='Network error. Please try again.';
-  }finally{
-    btnConfirm.disabled=false;
-  }
-});
   </script>
 </body>
 </html>
