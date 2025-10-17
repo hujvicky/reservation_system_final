@@ -8,29 +8,42 @@
 </head>
 <body class="p-6 bg-gray-50">
   <div class="max-w-6xl mx-auto">
-    <div class="flex items-center justify-between mb-4">
-      <h1 class="text-3xl font-bold">Reservations Records</h1>
-      <a href="/api/reservations.csv" class="px-4 py-2 rounded bg-indigo-600 text-white hover:bg-indigo-700">Export CSV</a>
+    <!-- ✅ 頂部區塊：返回按鈕 + 標題 -->
+    <div class="flex items-center justify-between mb-6">
+      <div class="flex items-center gap-3">
+        <a href="/" 
+           class="inline-flex items-center gap-2 px-3 py-2 rounded-lg bg-white border border-gray-300 text-gray-700 hover:bg-gray-100 transition">
+          <!-- 左箭頭 -->
+          <svg xmlns="http://www.w3.org/2000/svg" class="w-4 h-4" fill="none" viewBox="0 0 24 24" stroke="currentColor">
+            <path stroke-linecap="round" stroke-linejoin="round" stroke-width="2" d="M10 19l-7-7m0 0l7-7m-7 7h18"/>
+          </svg>
+          Back to Seating Map
+        </a>
+        <h1 class="text-3xl font-bold">Reservations Records</h1>
+      </div>
     </div>
 
+    <!-- 搜尋過濾區 -->
     <form id="filter" class="flex flex-wrap items-end gap-3 mb-4">
       <div>
         <label class="block text-sm text-gray-600 mb-1">Table</label>
         <input id="f-table" type="number" min="1" class="border rounded px-3 py-2 w-32" placeholder="e.g. 67">
       </div>
-      <button type="submit" class="bg-indigo-600 text-white px-4 py-2 rounded">Search</button>
+      <button type="submit" class="bg-indigo-600 text-white px-4 py-2 rounded hover:bg-indigo-700">Search</button>
     </form>
 
-    <div class="overflow-x-auto bg-white border border-gray-200 rounded">
+    <!-- 表格 -->
+    <div class="overflow-x-auto bg-white border border-gray-200 rounded shadow-sm">
       <table class="w-full text-sm">
-        <thead class="bg-gray-50">
+        <thead class="bg-gray-100">
           <tr>
-            <th class="p-2 border">Table</th>
-            <th class="p-2 border">Seats</th>
-            <th class="p-2 border">Employee</th>
-            <th class="p-2 border">Login</th>
-            <th class="p-2 border">Created</th>
-            <th class="p-2 border">ID</th>
+            <!-- ✅ ID 移到最前面 -->
+            <th class="p-2 border font-semibold">ID</th>
+            <th class="p-2 border font-semibold">Table</th>
+            <th class="p-2 border font-semibold">Seats</th>
+            <th class="p-2 border font-semibold">Employee</th>
+            <th class="p-2 border font-semibold">Login</th>
+            <th class="p-2 border font-semibold">Created</th>
           </tr>
         </thead>
         <tbody id="rows"></tbody>
@@ -43,21 +56,15 @@
       const table = document.getElementById('f-table').value;
       const qs = new URLSearchParams();
       if(table) qs.set('table_id', table);
-      const r = await fetch('/api/reservations?'+qs.toString());
+      const r = await fetch('/api/reservations?' + qs.toString());
       const { data } = await r.json();
+
+      // ✅ ID 改成顯示 reservation 的真實 UUID（前 8 碼）
       document.getElementById('rows').innerHTML = data.map((d, idx) => `
-        <tr>
-          <td class="p-2 border">${d.table_id}</td>
+        <tr class="hover:bg-gray-50">
+          <td class="p-2 border font-mono text-xs text-gray-700">${d.id.slice(0,8)}</td>
+          <td class="p-2 border text-gray-800">Table ${d.table_id}</td>
           <td class="p-2 border">${d.seats_taken}</td>
           <td class="p-2 border">${d.employee_name}</td>
           <td class="p-2 border">${d.login_id}</td>
-          <td class="p-2 border">${new Date(d.created_at).toLocaleString()}</td>
-          <td class="p-2 border font-semibold">${idx + 1}</td>
-        </tr>
-      `).join('');
-    }
-    document.getElementById('filter').addEventListener('submit', e => { e.preventDefault(); load();});
-    load();
-  </script>
-</body>
-</html>
+          <td class="p-2 border text-gray-600">${new Date(d.created_at).toLocaleS_
