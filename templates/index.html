@@ -63,13 +63,7 @@
          class="justify-self-start text-[26px] text-indigo-600 hover:text-indigo-800 font-semibold underline transition-transform hover:scale-105">
         View All Reservations
       </a>
-
-      <!-- ✅ STAGE (perfectly centered above seating map) -->
-<div class="text-center w-full mb-6">
-  <div class="inline-block py-4 px-40 rounded-2xl border-4 border-red-500 bg-white font-extrabold text-red-500 text-4xl tracking-[0.25em] shadow-[inset_0_0_0_6px_rgba(239,68,68,0.15)]">
-    S T A G E
-  </div>
-</div>
+    
 
       <!-- Right: placeholder -->
       <div></div>
@@ -78,8 +72,17 @@
     <!-- 訊息列 -->
     <p id="msg" class="text-sm text-gray-600 mb-3" aria-live="polite"></p>
 
+    
     <!-- 座位圖 + 入口框 共同容器：寬隨座位圖、置中 -->
     <div class="mx-auto" style="width:max-content;">
+
+      <!-- Center: STAGE（置中在座位圖上方） -->
+<div class="w-full flex justify-center mb-6">
+  <div class="w-[900px] py-4 rounded-2xl border-4 border-red-500 bg-white font-extrabold text-red-500 text-4xl tracking-[0.25em] text-center shadow-[inset_0_0_0_6px_rgba(239,68,68,0.15)]">
+    S T A G E
+  </div>
+</div>
+
       <!-- Seating map -->
       <div id="seating-map" aria-label="Seating map"></div>
 
