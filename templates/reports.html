@@ -67,4 +67,17 @@
           <td class="p-2 border">${d.seats_taken}</td>
           <td class="p-2 border">${d.employee_name}</td>
           <td class="p-2 border">${d.login_id}</td>
-          <td class="p-2 border text-gray-600">${new Date(d.created_at).toLocaleS_
+          <td class="p-2 border text-gray-600">${new Date(d.created_at).toLocaleString()}</td>
+        </tr>
+      `).join('');
+    }
+
+    document.getElementById('filter').addEventListener('submit', e => { 
+      e.preventDefault(); 
+      load(); 
+    });
+
+    load();
+  </script>
+</body>
+</html>
