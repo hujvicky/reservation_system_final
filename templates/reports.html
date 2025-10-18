@@ -43,7 +43,7 @@
             <th class="p-2 border font-semibold">Seats</th>
             <th class="p-2 border font-semibold">Employee</th>
             <th class="p-2 border font-semibold">Login</th>
-            <th class="p-2 border font-semibold">Created</th>
+            <th class="p-2 border font-semibold">Created (GMT+8)</th>
           </tr>
         </thead>
         <tbody id="rows"></tbody>
@@ -52,6 +52,16 @@
   </div>
 
   <script>
+
+    function fmtTW(isoString){
+  // 安全地以台灣時區顯示，不受瀏覽器預設時區影響
+  try {
+    return new Date(isoString).toLocaleString('en-US', { timeZone: 'Asia/Taipei', hour12: false });
+  } catch {
+    return isoString; // 後援：如果 parse 失敗就原樣顯示
+  }
+}
+
     async function load(){
       const table = document.getElementById('f-table').value;
       const qs = new URLSearchParams();
@@ -67,7 +77,7 @@
           <td class="p-2 border">${d.seats_taken}</td>
           <td class="p-2 border">${d.employee_name}</td>
           <td class="p-2 border">${d.login_id}</td>
-          <td class="p-2 border text-gray-600">${new Date(d.created_at).toLocaleString()}</td>
+          <td class="p-2 border text-gray-600">${fmtTW(d.created_at)}</td>
         </tr>
       `).join('');
     }
