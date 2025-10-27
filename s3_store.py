@@ -26,7 +26,7 @@ class S3Store:
         """儲存預訂資料到 S3"""
         try:
             # 確保資料包含時間戳記
-            reservation_data['created_at'] = datetime.now().isoformat()
+            reservation_data['created_at'] = reservation_data.get('created_at', datetime.now().isoformat())
             reservation_data['updated_at'] = datetime.now().isoformat()
 
             key = self._get_reservation_key(slot_id)
@@ -147,137 +147,137 @@ class S3Store:
             logger.error(f"S3 連線失敗: {e}")
             return False
 
-# 在 s3_store.py 中新增以下方法：
+    # ========== 新增的方法（注意縮排和 self 參數）==========
 
-def get_tables_data(self):
-    """獲取所有桌位資料"""
-    try:
-        response = self.s3_client.get_object(
-            Bucket=self.bucket_name,
-            Key="tables/tables.json"
-        )
-        data = json.loads(response['Body'].read().decode('utf-8'))
-        return data
-    except ClientError as e:
-        if e.response['Error']['Code'] == 'NoSuchKey':
+    def get_tables_data(self):
+        """獲取所有桌位資料"""
+        try:
+            response = self.s3_client.get_object(
+                Bucket=self.bucket_name,
+                Key="tables/tables.json"
+            )
+            data = json.loads(response['Body'].read().decode('utf-8'))
+            return data
+        except ClientError as e:
+            if e.response['Error']['Code'] == 'NoSuchKey':
+                return None
+            logger.error(f"獲取桌位資料失敗: {e}")
             return None
-        logger.error(f"獲取桌位資料失敗: {e}")
-        return None
 
-def save_tables_data(self, tables_data):
-    """儲存桌位資料"""
-    try:
-        self.s3_client.put_object(
-            Bucket=self.bucket_name,
-            Key="tables/tables.json",
-            Body=json.dumps(tables_data, ensure_ascii=False, indent=2),
-            ContentType='application/json'
-        )
-        return True
-    except ClientError as e:
-        logger.error(f"儲存桌位資料失敗: {e}")
-        return False
-
-def reserve_seats(self, table_id, seats_count):
-    """預訂座位（原子操作）"""
-    try:
-        tables_data = self.get_tables_data()
-        if not tables_data:
+    def save_tables_data(self, tables_data):
+        """儲存桌位資料"""
+        try:
+            self.s3_client.put_object(
+                Bucket=self.bucket_name,
+                Key="tables/tables.json",
+                Body=json.dumps(tables_data, ensure_ascii=False, indent=2),
+                ContentType='application/json'
+            )
+            return True
+        except ClientError as e:
+            logger.error(f"儲存桌位資料失敗: {e}")
             return False
 
-        table_key = str(table_id)
-        if table_key not in tables_data:
+    def reserve_seats(self, table_id, seats_count):
+        """預訂座位（原子操作）"""
+        try:
+            tables_data = self.get_tables_data()
+            if not tables_data:
+                return False
+
+            table_key = str(table_id)
+            if table_key not in tables_data:
+                return False
+
+            if tables_data[table_key]["seats_left"] < seats_count:
+                return False
+
+            tables_data[table_key]["seats_left"] -= seats_count
+            return self.save_tables_data(tables_data)
+
+        except Exception as e:
+            logger.error(f"預訂座位失敗: {e}")
             return False
 
-        if tables_data[table_key]["seats_left"] < seats_count:
+    def release_seats(self, table_id, seats_count):
+        """釋放座位"""
+        try:
+            tables_data = self.get_tables_data()
+            if not tables_data:
+                return False
+
+            table_key = str(table_id)
+            if table_key not in tables_data:
+                return False
+
+            tables_data[table_key]["seats_left"] += seats_count
+            return self.save_tables_data(tables_data)
+
+        except Exception as e:
+            logger.error(f"釋放座位失敗: {e}")
             return False
 
-        tables_data[table_key]["seats_left"] -= seats_count
-        return self.save_tables_data(tables_data)
-
-    except Exception as e:
-        logger.error(f"預訂座位失敗: {e}")
-        return False
-
-def release_seats(self, table_id, seats_count):
-    """釋放座位"""
-    try:
-        tables_data = self.get_tables_data()
-        if not tables_data:
+    def check_login_id_exists(self, login_id):
+        """檢查 login_id 是否已存在"""
+        try:
+            reservations = self.get_all_reservations()
+            return any(r.get("login_id", "").lower() == login_id.lower() for r in reservations)
+        except Exception as e:
+            logger.error(f"檢查 login_id 失敗: {e}")
             return False
 
-        table_key = str(table_id)
-        if table_key not in tables_data:
+    def get_all_reservations(self):
+        """獲取所有預約"""
+        try:
+            response = self.s3_client.list_objects_v2(
+                Bucket=self.bucket_name,
+                Prefix="reservations/"
+            )
+
+            reservations = []
+            if 'Contents' in response:
+                for obj in response['Contents']:
+                    if obj['Key'].endswith('.json'):
+                        try:
+                            obj_response = self.s3_client.get_object(
+                                Bucket=self.bucket_name,
+                                Key=obj['Key']
+                            )
+                            reservation_data = json.loads(obj_response['Body'].read().decode('utf-8'))
+                            reservations.append(reservation_data)
+                        except Exception as e:
+                            logger.warning(f"無法讀取預約檔案 {obj['Key']}: {e}")
+
+            return reservations
+
+        except ClientError as e:
+            logger.error(f"獲取所有預約失敗: {e}")
+            return []
+
+    def save_idempotency_key(self, key, data):
+        """儲存防重複鍵"""
+        try:
+            self.s3_client.put_object(
+                Bucket=self.bucket_name,
+                Key=f"idempotency/{key}.json",
+                Body=json.dumps(data, ensure_ascii=False, indent=2),
+                ContentType='application/json'
+            )
+            return True
+        except ClientError as e:
+            logger.error(f"儲存防重複鍵失敗: {e}")
             return False
 
-        tables_data[table_key]["seats_left"] += seats_count
-        return self.save_tables_data(tables_data)
-
-    except Exception as e:
-        logger.error(f"釋放座位失敗: {e}")
-        return False
-
-def check_login_id_exists(self, login_id):
-    """檢查 login_id 是否已存在"""
-    try:
-        reservations = self.get_all_reservations()
-        return any(r.get("login_id", "").lower() == login_id.lower() for r in reservations)
-    except Exception as e:
-        logger.error(f"檢查 login_id 失敗: {e}")
-        return False
-
-def get_all_reservations(self):
-    """獲取所有預約"""
-    try:
-        response = self.s3_client.list_objects_v2(
-            Bucket=self.bucket_name,
-            Prefix="reservations/"
-        )
-
-        reservations = []
-        if 'Contents' in response:
-            for obj in response['Contents']:
-                if obj['Key'].endswith('.json'):
-                    try:
-                        obj_response = self.s3_client.get_object(
-                            Bucket=self.bucket_name,
-                            Key=obj['Key']
-                        )
-                        reservation_data = json.loads(obj_response['Body'].read().decode('utf-8'))
-                        reservations.append(reservation_data)
-                    except Exception as e:
-                        logger.warning(f"無法讀取預約檔案 {obj['Key']}: {e}")
-
-        return reservations
-
-    except ClientError as e:
-        logger.error(f"獲取所有預約失敗: {e}")
-        return []
-
-def save_idempotency_key(self, key, data):
-    """儲存防重複鍵"""
-    try:
-        self.s3_client.put_object(
-            Bucket=self.bucket_name,
-            Key=f"idempotency/{key}.json",
-            Body=json.dumps(data, ensure_ascii=False, indent=2),
-            ContentType='application/json'
-        )
-        return True
-    except ClientError as e:
-        logger.error(f"儲存防重複鍵失敗: {e}")
-        return False
-
-def get_idempotency_key(self, key):
-    """獲取防重複鍵"""
-    try:
-        response = self.s3_client.get_object(
-            Bucket=self.bucket_name,
-            Key=f"idempotency/{key}.json"
-        )
-        return json.loads(response['Body'].read().decode('utf-8'))
-    except ClientError as e:
-        if e.response['Error']['Code'] == 'NoSuchKey':
+    def get_idempotency_key(self, key):
+        """獲取防重複鍵"""
+        try:
+            response = self.s3_client.get_object(
+                Bucket=self.bucket_name,
+                Key=f"idempotency/{key}.json"
+            )
+            return json.loads(response['Body'].read().decode('utf-8'))
+        except ClientError as e:
+            if e.response['Error']['Code'] == 'NoSuchKey':
+                return None
+            logger.error(f"獲取防重複鍵失敗: {e}")
             return None
-        logger.error(f"獲取防重複鍵失敗: {e}")
-        return None
