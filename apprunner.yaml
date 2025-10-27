@@ -1,15 +1,17 @@
 version: 1.0
 runtime: python3
-
-env:
-  variables:
-    DATABASE_URL: sqlite:////tmp/app.db?check_same_thread=false
-
 build:
   commands:
-    - pip install --no-cache-dir -r requirements.txt
-
+    build:
+      - echo "Installing dependencies"
+      - pip install -r requirements.txt
 run:
-  command: gunicorn -w 2 -k gthread --threads 4 --timeout 60 --graceful-timeout 30 -b 0.0.0.0:8080 app:app
+  runtime-version: 3.11
+  command: python app.py
   network:
-    port: 8080
+    port: 8000
+  env:
+    - name: S3_BUCKET_NAME
+      value: "seat-reservation-data-2025"
+    - name: AWS_DEFAULT_REGION
+      value: "us-east-1"
