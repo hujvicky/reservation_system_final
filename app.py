@@ -1,95 +1,63 @@
 # ======================================
-# Reservation System - AWS App Runner 版
-# 完整功能：CRUD + 防重投 + login_id 唯一(不分大小寫) + /tmp SQLite fallback
+# Reservation System - AWS App Runner + S3 版
+# 完整功能：CRUD + 防重投 + login_id 唯一(不分大小寫) + S3 儲存
 # ======================================
 
 from flask import Flask, request, jsonify, send_file, render_template
 from flask_cors import CORS
-from sqlalchemy import text
-from sqlalchemy.exc import IntegrityError
-from models import db, TableInventory, Reservation, IdempotencyKey  # models.py 需對應三表
+from s3_store import S3Store
 from pathlib import Path
-import os, shutil, io, csv, uuid
+import os, io, csv, uuid
+from datetime import datetime
+import json
 
 # ---------- 基本路徑 ----------
 PROJECT_DIR = Path(__file__).resolve().parent
 TEMPLATES_DIR = PROJECT_DIR / "templates"
-SEED_DB_PATH = PROJECT_DIR / "data" / "reservations.db"
-TMP_DIR = Path("/tmp")
-TMP_DB_PATH = TMP_DIR / "reservations.db"
 
 app = Flask(__name__, template_folder=str(TEMPLATES_DIR), static_folder="static")
 CORS(app)
 
-# ---------- 資料庫設定（App Runner 可寫在 /tmp） ----------
-DATABASE_URL = os.environ.get("DATABASE_URL")
-if not DATABASE_URL:
-    TMP_DIR.mkdir(parents=True, exist_ok=True)
-    if not TMP_DB_PATH.exists() and SEED_DB_PATH.exists():
-        try:
-            shutil.copy(SEED_DB_PATH, TMP_DB_PATH)
-            print("[INFO] Copied seed DB to /tmp/reservations.db")
-        except Exception as e:
-            print(f"[WARN] Failed to copy seed DB: {e}")
-    # SQLite 多執行緒：check_same_thread=false
-    DATABASE_URL = f"sqlite:///{TMP_DB_PATH}?check_same_thread=false"
-
-app.config["SQLALCHEMY_DATABASE_URI"] = DATABASE_URL
-app.config["SQLALCHEMY_TRACK_MODIFICATIONS"] = False
-db.init_app(app)
+# ---------- S3 儲存初始化 ----------
+s3_store = S3Store()
 
 MAX_PER_BOOKING = 3
 
+# ---------- 初始化桌位資料 ----------
+def init_tables():
+    """初始化桌位資料到 S3"""
+    try:
+        # 檢查是否已有桌位資料
+        existing_tables = s3_store.get_tables_data()
+        if existing_tables:
+            print("[INFO] Tables data already exists in S3")
+            return
 
-# ---------- 初始化（建表 & 預設桌位 & 索引） ----------
-def init_seed():
-    with app.app_context():
-        # 依 models 建表（tables / reservations / idempotency_keys）
-        db.create_all()
+        # 建立預設桌位資料
+        tables_data = {}
+        for i in range(1, 109):
+            tables_data[str(i)] = {
+                "id": i,
+                "name": f"Table {i}",
+                "total": 10,
+                "seats_left": 10
+            }
 
-        # 將既有 reservations.login_id 全部轉成小寫（避免 AAA/aAa/aaa 撞名）
-        db.session.execute(text("UPDATE reservations SET login_id = lower(login_id)"))
-        db.session.commit()
+        if s3_store.save_tables_data(tables_data):
+            print("[INFO] Initialized tables (1..108) in S3.")
+        else:
+            print("[WARN] Failed to initialize tables in S3.")
 
-        # 建立「大小寫不敏感」唯一索引（SQLite 支援 COLLATE NOCASE）
-        db.session.execute(text("""
-            CREATE UNIQUE INDEX IF NOT EXISTS ux_reservations_login_nocase
-            ON reservations(login_id COLLATE NOCASE)
-        """))
-        db.session.commit()
+    except Exception as e:
+        print(f"[WARN] init_tables failed: {e}")
 
-        # Seed tables（只在空表時）
-        cnt = db.session.execute(text("SELECT COUNT(*) FROM tables")).scalar() or 0
-        if cnt == 0:
-            rows = [
-                {"id": i, "name": f"Table {i}", "total": 10, "seats_left": 10}
-                for i in range(1, 109)
-            ]
-            db.session.execute(
-                text(
-                    "INSERT OR IGNORE INTO tables (id, name, total, seats_left) "
-                    "VALUES (:id, :name, :total, :seats_left)"
-                ),
-                rows,
-            )
-            db.session.commit()
-            print("[INFO] Initialized tables (1..108).")
-
-        # 啟動自檢
-        names = db.session.execute(
-            text("SELECT name FROM sqlite_master WHERE type='table' ORDER BY name")
-        ).scalars().all()
-        print("[INFO] Tables present:", names)
-
-
-# ⚠️ App Runner / gunicorn 載入時就執行初始化
+# 啟動時初始化
 try:
-    init_seed()
+    init_tables()
 except Exception as e:
-    print(f"[WARN] init_seed skipped: {e}")
+    print(f"[WARN] init_tables skipped: {e}")
 
-
-# ---------- 頁面（保持與前端連結相容） ----------
+# ---------- 頁面路由 ----------
 @app.route("/")
 @app.route("/index.html")
 def index_page():
@@ -110,98 +78,111 @@ def login_page():
 def reports_page():
     return render_template("reports.html")
 
-
 # ---------- 健康檢查 ----------
 @app.get("/health")
 def health():
     return jsonify(ok=True)
 
+# ---------- S3 連線測試 ----------
+@app.route('/test-s3')
+def test_s3():
+    if s3_store.test_connection():
+        return jsonify({
+            'status': 'success',
+            'message': 'S3 連線成功！',
+            'bucket': s3_store.bucket_name
+        })
+    else:
+        return jsonify({
+            'status': 'error',
+            'message': 'S3 連線失敗'
+        }), 500
 
-# ---------- API：座位狀態（index.html 會每 3 秒輪詢） ----------
+# ---------- API：座位狀態 ----------
 @app.get("/api/status")
 def api_status():
-    rows = db.session.execute(
-        text("SELECT id, seats_left FROM tables ORDER BY id")
-    ).mappings().all()
-    return jsonify({"tables": [{"table_id": r["id"], "seats_left": r["seats_left"]} for r in rows]})
+    tables_data = s3_store.get_tables_data()
+    if not tables_data:
+        return jsonify({"tables": []})
 
+    tables_list = []
+    for table_id in sorted(tables_data.keys(), key=int):
+        table = tables_data[table_id]
+        tables_list.append({
+            "table_id": table["id"],
+            "seats_left": table["seats_left"]
+        })
 
-# ---------- API：桌位清單（保留） ----------
+    return jsonify({"tables": tables_list})
+
+# ---------- API：桌位清單 ----------
 @app.get("/api/tables")
 def api_tables():
-    rows = db.session.execute(
-        text("SELECT id, name, total, seats_left FROM tables ORDER BY id")
-    ).mappings().all()
-    return jsonify([dict(r) for r in rows])
+    tables_data = s3_store.get_tables_data()
+    if not tables_data:
+        return jsonify([])
 
+    tables_list = []
+    for table_id in sorted(tables_data.keys(), key=int):
+        table = tables_data[table_id]
+        tables_list.append({
+            "id": table["id"],
+            "name": table["name"],
+            "total": table["total"],
+            "seats_left": table["seats_left"]
+        })
 
-# ---------- API：可用性（回傳滿座桌，index 有用到） ----------
+    return jsonify(tables_list)
+
+# ---------- API：可用性 ----------
 @app.get("/api/reservations/availability")
 def api_availability():
-    rows = db.session.execute(
-        text("SELECT id, seats_left FROM tables ORDER BY id")
-    ).mappings().all()
-    confirmed = [{"table_id": r["id"]} for r in rows if r["seats_left"] <= 0]
+    tables_data = s3_store.get_tables_data()
+    if not tables_data:
+        return jsonify({"holds": [], "confirmed": []})
+
+    confirmed = []
+    for table_id, table in tables_data.items():
+        if table["seats_left"] <= 0:
+            confirmed.append({"table_id": table["id"]})
+
     return jsonify({"holds": [], "confirmed": confirmed})
 
-
-# ---------- 工具：序列化 ----------
-def _row_to_reservation_dict(r):
-    created = r["created_at"]
-    created_iso = created.isoformat() if hasattr(created, "isoformat") else str(created)
-    return {
-        "id": r["id"],
-        "table_id": r["table_id"],
-        "seats_taken": r["seats_taken"],
-        "employee_name": r["employee_name"],
-        "login_id": r["login_id"],
-        "created_at": created_iso,
-    }
-
-
-# ---------- API：查詢預約（admin/reports 使用） ----------
+# ---------- API：查詢預約 ----------
 @app.get("/api/reservations")
 def list_reservations():
     table_id = request.args.get("table_id", type=int)
     page = max(1, request.args.get("page", default=1, type=int))
     size = min(100, max(1, request.args.get("page_size", default=50, type=int)))
-    off = (page - 1) * size
 
-    where, params = [], {}
+    # 獲取所有預約
+    all_reservations = s3_store.get_all_reservations()
+
+    # 過濾條件
     if table_id:
-        where.append("table_id = :tid")
-        params["tid"] = table_id
-    WHERE = ("WHERE " + " AND ".join(where)) if where else ""
+        all_reservations = [r for r in all_reservations if r.get("table_id") == table_id]
 
-    data = db.session.execute(
-        text(f"""
-            SELECT id, table_id, seats_taken, employee_name, login_id, created_at
-            FROM reservations
-            {WHERE}
-            ORDER BY created_at DESC
-            LIMIT :lim OFFSET :off
-        """),
-        dict(params, lim=size, off=off),
-    ).mappings().all()
+    # 排序（最新的在前）
+    all_reservations.sort(key=lambda x: x.get("created_at", ""), reverse=True)
 
-    total = db.session.execute(
-        text(f"SELECT COUNT(*) FROM reservations {WHERE}"), params
-    ).scalar()
+    # 分頁
+    total = len(all_reservations)
+    start = (page - 1) * size
+    end = start + size
+    data = all_reservations[start:end]
 
     return jsonify({
-        "data": [_row_to_reservation_dict(r) for r in data],
-        "total": int(total),
+        "data": data,
+        "total": total,
         "page": page,
         "page_size": size
     })
 
-
-# ---------- API：建立預約（index.html 的 Confirm） ----------
+# ---------- API：建立預約 ----------
 @app.post("/api/reserve")
 def reserve():
     payload = request.get_json(force=True)
 
-    # 前端欄位：table_id, seats_to_take, employee_name, login_id
     try:
         table_id = int(payload["table_id"])
     except Exception:
@@ -214,7 +195,6 @@ def reserve():
         seats = 1
 
     employee_name = str(payload.get("employee_name", "")).strip() or "Guest"
-    # 標準化：小寫化、去空白，避免 AAA/AaA/aaa 視為不同
     login_id = (str(payload.get("login_id", "")).strip() or "guest").lower()
 
     if seats < 1 or seats > MAX_PER_BOOKING:
@@ -223,157 +203,131 @@ def reserve():
     idem_key = request.headers.get("Idempotency-Key") or str(uuid.uuid4())
 
     try:
-        with db.session.begin():
-            # A) 同一 login_id 不可重複（大小寫不敏感）
-            exists = db.session.execute(
-                text("SELECT 1 FROM reservations WHERE login_id = :login COLLATE NOCASE LIMIT 1"),
-                {"login": login_id},
-            ).first()
-            if exists:
-                return jsonify(success=False, message="This login_id already has a reservation."), 409
+        # 檢查防重複提交
+        existing_idem = s3_store.get_idempotency_key(idem_key)
+        if existing_idem:
+            return jsonify(success=True, message="Already processed",
+                         reservation_id=existing_idem.get("reservation_id")), 200
 
-            # B) 防止重複提交（Idempotency-Key）
-            row = db.session.execute(
-                text("SELECT result_reservation_id FROM idempotency_keys WHERE key=:k"),
-                {"k": idem_key},
-            ).first()
-            if row and row[0]:
-                return jsonify(success=True, message="Already processed", reservation_id=row[0]), 200
-            elif row is None:
-                db.session.execute(
-                    text("INSERT INTO idempotency_keys(key) VALUES (:k)"),
-                    {"k": idem_key},
-                )
+        # 檢查 login_id 是否已存在
+        if s3_store.check_login_id_exists(login_id):
+            return jsonify(success=False, message="This login_id already has a reservation."), 409
 
-            # C) 扣座位（確保不會變負數）
-            updated = db.session.execute(
-                text("""
-                    UPDATE tables
-                    SET seats_left = seats_left - :n
-                    WHERE id = :tid AND seats_left >= :n
-                """),
-                {"n": seats, "tid": table_id},
-            )
-            if updated.rowcount == 0:
-                db.session.rollback()
-                return jsonify(success=False, message="This table is full or seats are not enough now."), 409
+        # 檢查座位是否足夠並扣除
+        if not s3_store.reserve_seats(table_id, seats):
+            return jsonify(success=False, message="This table is full or seats are not enough now."), 409
 
-            # D) 建立預約
-            rid = str(uuid.uuid4())
-            db.session.execute(
-                text("""
-                    INSERT INTO reservations(id, table_id, seats_taken, employee_name, login_id)
-                    VALUES(:id, :tid, :n, :emp, :login)
-                """),
-                {"id": rid, "tid": table_id, "n": seats, "emp": employee_name, "login": login_id},
-            )
-            db.session.execute(
-                text("UPDATE idempotency_keys SET result_reservation_id=:rid WHERE key=:k"),
-                {"rid": rid, "k": idem_key},
-            )
-    except IntegrityError:
-        # UNIQUE 索引（NOCASE）擋住併發第二筆
-        return jsonify(success=False, message="This login_id already has a reservation."), 409
+        # 建立預約
+        reservation_id = str(uuid.uuid4())
+        reservation_data = {
+            "id": reservation_id,
+            "table_id": table_id,
+            "seats_taken": seats,
+            "employee_name": employee_name,
+            "login_id": login_id,
+            "created_at": datetime.now().isoformat()
+        }
 
-    return jsonify(success=True, message="Reservation confirmed!", reservation_id=rid, table_id=table_id), 201
+        # 儲存預約和防重複鍵
+        if s3_store.save_reservation(reservation_id, reservation_data):
+            s3_store.save_idempotency_key(idem_key, {"reservation_id": reservation_id})
+            return jsonify(success=True, message="Reservation confirmed!",
+                         reservation_id=reservation_id, table_id=table_id), 201
+        else:
+            # 如果儲存失敗，回復座位
+            s3_store.release_seats(table_id, seats)
+            return jsonify(success=False, message="Failed to save reservation"), 500
 
+    except Exception as e:
+        return jsonify(success=False, message=f"Reservation failed: {str(e)}"), 500
 
-# ---------- API：取消預約（admin.html 的 Cancel） ----------
+# ---------- API：取消預約 ----------
 @app.post("/api/cancel")
 def cancel():
     payload = request.get_json(force=True)
-    rid = payload.get("reservation_id")
-    if not rid:
+    reservation_id = payload.get("reservation_id")
+
+    if not reservation_id:
         return jsonify(success=False, message="reservation_id required"), 400
 
-    with db.session.begin():
-        row = db.session.execute(
-            text("SELECT table_id, seats_taken FROM reservations WHERE id=:id"),
-            {"id": rid},
-        ).first()
-        if not row:
-            return jsonify(success=False, message="Reservation not found"), 404
+    reservation = s3_store.get_reservation(reservation_id)
+    if not reservation:
+        return jsonify(success=False, message="Reservation not found"), 404
 
-        db.session.execute(text("DELETE FROM reservations WHERE id=:id"), {"id": rid})
-        db.session.execute(
-            text("UPDATE tables SET seats_left = seats_left + :n WHERE id=:tid"),
-            {"n": row[1], "tid": row[0]},
-        )
-    return jsonify(success=True)
+    # 刪除預約並回復座位
+    if s3_store.delete_reservation(reservation_id):
+        s3_store.release_seats(reservation["table_id"], reservation["seats_taken"])
+        return jsonify(success=True)
+    else:
+        return jsonify(success=False, message="Failed to cancel reservation"), 500
 
-
-# ---------- API：減少座位（admin.html 的 Reduce） ----------
+# ---------- API：減少座位 ----------
 @app.post("/api/reduce")
 def reduce_seats():
     payload = request.get_json(force=True)
-    rid = payload.get("reservation_id")
+    reservation_id = payload.get("reservation_id")
     reduce_by = payload.get("reduce_by", 0)
+
     try:
         reduce_by = int(reduce_by)
     except Exception:
         reduce_by = 0
 
-    if not rid or reduce_by <= 0:
+    if not reservation_id or reduce_by <= 0:
         return jsonify(success=False, message="Invalid input"), 400
 
-    with db.session.begin():
-        row = db.session.execute(
-            text("SELECT table_id, seats_taken FROM reservations WHERE id=:id"),
-            {"id": rid},
-        ).first()
-        if not row:
-            return jsonify(success=False, message="Reservation not found"), 404
+    reservation = s3_store.get_reservation(reservation_id)
+    if not reservation:
+        return jsonify(success=False, message="Reservation not found"), 404
 
-        current = int(row[1])
-        if reduce_by >= current:
-            # 直接刪除並全數回補
-            db.session.execute(text("DELETE FROM reservations WHERE id=:id"), {"id": rid})
-            to_return = current
-        else:
-            # 更新預約數量
-            db.session.execute(
-                text("UPDATE reservations SET seats_taken = seats_taken - :reduce WHERE id=:id"),
-                {"reduce": reduce_by, "id": rid},
-            )
-            to_return = reduce_by
+    current_seats = reservation["seats_taken"]
 
-        # 回補座位
-        db.session.execute(
-            text("UPDATE tables SET seats_left = seats_left + :n WHERE id=:tid"),
-            {"n": to_return, "tid": row[0]},
-        )
+    if reduce_by >= current_seats:
+        # 完全取消預約
+        if s3_store.delete_reservation(reservation_id):
+            s3_store.release_seats(reservation["table_id"], current_seats)
+            return jsonify(success=True, message=f"Reservation cancelled, returned {current_seats} seat(s).")
+    else:
+        # 減少座位數
+        updated_reservation = reservation.copy()
+        updated_reservation["seats_taken"] = current_seats - reduce_by
+        updated_reservation["updated_at"] = datetime.now().isoformat()
 
-    return jsonify(success=True, message=f"Reduced {to_return} seat(s).")
+        if s3_store.update_reservation(reservation_id, updated_reservation):
+            s3_store.release_seats(reservation["table_id"], reduce_by)
+            return jsonify(success=True, message=f"Reduced {reduce_by} seat(s).")
 
+    return jsonify(success=False, message="Failed to reduce seats"), 500
 
-# ---------- 匯出 CSV（admin/reports 會用到） ----------
+# ---------- 匯出 CSV ----------
 @app.get("/api/reservations.csv")
 def export_csv():
     out = io.StringIO()
     writer = csv.writer(out)
     writer.writerow(["id", "table_id", "seats_taken", "employee_name", "login_id", "created_at"])
-    rows = db.session.execute(
-        text("""
-            SELECT id, table_id, seats_taken, employee_name, login_id, created_at
-            FROM reservations
-            ORDER BY created_at DESC
-        """)
-    ).mappings().all()
-    for r in rows:
-        created = r["created_at"]
-        created_iso = created.isoformat() if hasattr(created, "isoformat") else str(created)
-        writer.writerow([r["id"], r["table_id"], r["seats_taken"], r["employee_name"], r["login_id"], created_iso])
+
+    reservations = s3_store.get_all_reservations()
+    reservations.sort(key=lambda x: x.get("created_at", ""), reverse=True)
+
+    for r in reservations:
+        writer.writerow([
+            r.get("id", ""),
+            r.get("table_id", ""),
+            r.get("seats_taken", ""),
+            r.get("employee_name", ""),
+            r.get("login_id", ""),
+            r.get("created_at", "")
+        ])
 
     mem = io.BytesIO(out.getvalue().encode("utf-8"))
     mem.seek(0)
     return send_file(mem, mimetype="text/csv", as_attachment=True, download_name="reservations.csv")
 
-
-# ---------- 啟動（本地測試用；App Runner 用 gunicorn） ----------
+# ---------- 啟動 ----------
 if __name__ == "__main__":
     try:
-        init_seed()
+        init_tables()
     except Exception as e:
-        print(f"[WARN] init_seed skipped: {e}")
-    port = int(os.getenv("PORT", 8080))
-    app.run(host="0.0.0.0", port=port)
+        print(f"[WARN] init_tables skipped: {e}")
+    port = int(os.getenv("PORT", 8000))
+    app.run(host="0.0.0.0", port=port, debug=False)
