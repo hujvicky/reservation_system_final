@@ -1,9 +1,12 @@
 import boto3
 import json
 import os
-from datetime import datetime
+from datetime import datetime, timezone, timedelta
 from botocore.exceptions import ClientError
 import logging
+
+# 定義台灣時區 (UTC+8)
+TAIWAN_TZ = timezone(timedelta(hours=8))
 
 # 設定日誌
 logging.basicConfig(level=logging.INFO)
@@ -19,15 +22,15 @@ class S3Store:
     def _get_reservation_key(self, slot_id, date_str=None):
         """生成預訂資料的 S3 key"""
         if date_str is None:
-            date_str = datetime.now().strftime('%Y-%m-%d')
+            date_str = datetime.now(TAIWAN_TZ).strftime('%Y-%m-%d')
         return f"reservations/{date_str}/{slot_id}.json"
 
     def save_reservation(self, slot_id, reservation_data):
         """儲存預訂資料到 S3"""
         try:
             # 確保資料包含時間戳記
-            reservation_data['created_at'] = reservation_data.get('created_at', datetime.now().isoformat())
-            reservation_data['updated_at'] = datetime.now().isoformat()
+            reservation_data['created_at'] = reservation_data.get('created_at', datetime.now(TAIWAN_TZ).isoformat())
+            reservation_data['updated_at'] = datetime.now(TAIWAN_TZ).isoformat()
 
             key = self._get_reservation_key(slot_id)
 
@@ -126,7 +129,7 @@ class S3Store:
 
             # 合併資料
             existing_data.update(updated_data)
-            existing_data['updated_at'] = datetime.now().isoformat()
+            existing_data['updated_at'] = datetime.now(TAIWAN_TZ).isoformat()
 
             # 儲存更新後的資料
             return self.save_reservation(slot_id, existing_data)
