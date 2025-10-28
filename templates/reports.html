@@ -54,11 +54,19 @@
   <script>
 
     function fmtTW(isoString){
-  // 安全地以台灣時區顯示，不受瀏覽器預設時區影響
   try {
-    return new Date(isoString).toLocaleString('en-US', { timeZone: 'Asia/Taipei', hour12: false });
+    return new Date(isoString).toLocaleString('en-US', {
+      timeZone: 'Asia/Taipei',
+      year: 'numeric',
+      month: '2-digit',
+      day: '2-digit',
+      hour: '2-digit',
+      minute: '2-digit',
+      second: '2-digit',
+      hour12: false
+    });
   } catch {
-    return isoString; // 後援：如果 parse 失敗就原樣顯示
+    return isoString;
   }
 }
 
@@ -67,6 +75,9 @@
       const qs = new URLSearchParams();
       if(table) qs.set('table_id', table);
       const r = await fetch('/api/reservations?' + qs.toString());
+      if (!r.ok) {
+      throw new Error(`HTTP ${r.status}: ${r.statusText}`);
+    }
       const { data } = await r.json();
 
       // ✅ ID 改成顯示 reservation 的真實 UUID（前 8 碼）
@@ -80,7 +91,7 @@
           <td class="p-2 border text-gray-600">${fmtTW(d.created_at)}</td>
         </tr>
       `).join('');
-    }
+    } 
 
     document.getElementById('filter').addEventListener('submit', e => { 
       e.preventDefault(); 
