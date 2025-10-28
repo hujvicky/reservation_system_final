@@ -5,12 +5,12 @@ from datetime import datetime, timezone, timedelta
 from botocore.exceptions import ClientError
 import logging
 
-# 定義台灣時區 (UTC+8)
-TAIWAN_TZ = timezone(timedelta(hours=8))
-
 # 設定日誌
 logging.basicConfig(level=logging.INFO)
 logger = logging.getLogger(__name__)
+
+# 定義台灣時區 (UTC+8)
+TAIWAN_TZ = timezone(timedelta(hours=8))
 
 class S3Store:
     def __init__(self):
