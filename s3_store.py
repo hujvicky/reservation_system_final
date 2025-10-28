@@ -231,34 +231,53 @@ class S3Store:
 
     # s3_store (1).py (片段)
 
+    # s3_store (1).py
+
+    # ... 其他程式碼 ...
+
     def get_all_reservations(self):
-        """獲取所有預訂資料"""
+        """獲取所有預訂資料 (已修正分頁問題)"""
         reservations = []
         try:
-            # 使用 list_objects_v2 查詢 Bucket 中所有以 'reservations/' 開頭的物件
-            response = self.s3_client.list_objects_v2(
+            # 使用 Paginator 處理分頁，確保讀取所有檔案
+            paginator = self.s3_client.get_paginator('list_objects_v2')
+            pages = paginator.paginate(
                 Bucket=self.bucket_name,
                 Prefix='reservations/'
             )
-            
-            # 檢查是否有物件
-            if 'Contents' in response:
-                for obj in response['Contents']:
-                    if obj['Key'].endswith('.json'):
-                        # 讀取物件內容
-                        try:
-                            # ... 讀取物件並解碼 ...
-                            reservations.append(reservation_data)
-                        except Exception as e:
-                            logger.warning(f"無法讀取預約檔案 {obj['Key']}: {e}")
-            
-            # <<< 錯誤點在此：此處沒有處理分頁 (Pagination)
 
+            # 遍歷所有頁面
+            for page in pages:
+                if 'Contents' in page:
+                    for obj in page['Contents']:
+                        # 檢查 Key 是否為 JSON 檔案，並排除目錄本身 (Key 結尾為 / 的情況)
+                        if obj['Key'].endswith('.json'):
+                            # 讀取物件內容
+                            try:
+                                obj_response = self.s3_client.get_object(
+                                    Bucket=self.bucket_name,
+                                    Key=obj['Key']
+                                )
+                                reservation_data = json.loads(obj_response['Body'].read().decode('utf-8'))
+                                # S3 中的檔案 Key 包含日期資訊，但 Reservation Model 中沒有，
+                                # 我們可以將 S3 Key 中的 UUID 作為最終的 Reservation ID。
+                                # 但由於您在 save_reservation 時已經將 UUID 存入 reservation_data['id']，
+                                # 此處無需修改。
+
+                                reservations.append(reservation_data)
+                            except Exception as e:
+                                logger.warning(f"無法讀取預約檔案 {obj['Key']}: {e}")
+            
             return reservations
 
         except ClientError as e:
+            # 由於 test-s3 成功，ClientError 可能是 ListBucket 權限問題。
+            # 雖然您說 test-s3 成功，但 ListBucket 權限是獨立於 Get/Put 的，
+            # 如果這個函式失敗，仍需要檢查 ListBucket 權限。
             logger.error(f"獲取所有預約失敗: {e}")
             return []
+
+    # ... 其他程式碼 ...
     def save_idempotency_key(self, key, data):
         """儲存防重複鍵"""
         try:
