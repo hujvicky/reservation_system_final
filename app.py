@@ -1,18 +1,24 @@
 # ======================================
 # Reservation System - AWS App Runner + S3 版
-# 完整功能：CRUD + 防重投 + login_id 唯一(不分大小寫) + S3 儲存
+# 完整功能：CRUD + 防重投 + login_id 唯一(不分大小寫) + S3 儲存 + Admin 登入
 # ======================================
 
 from flask import Flask, request, jsonify, send_file, render_template
 from flask_cors import CORS
 from s3_store import S3Store
 from pathlib import Path
-import os, io, csv, uuid
+import os, io, csv, uuid, jwt
 from datetime import datetime, timezone, timedelta
+from functools import wraps
 import json
 
-# 定義台灣時區
+# ---------- 台灣時區設定 ----------
 TAIWAN_TZ = timezone(timedelta(hours=8))
+
+# ---------- Admin 設定 ----------
+ADMIN_USERNAME = "admin"
+ADMIN_PASSWORD = "888888"
+JWT_SECRET = os.environ.get('JWT_SECRET', 'your-secret-key-change-this-in-production')
 
 # ---------- 基本路徑 ----------
 PROJECT_DIR = Path(__file__).resolve().parent
@@ -25,6 +31,27 @@ CORS(app)
 s3_store = S3Store()
 
 MAX_PER_BOOKING = 3
+
+# ---------- Token 驗證裝飾器 ----------
+def require_admin_token(f):
+    @wraps(f)
+    def decorated(*args, **kwargs):
+        token = request.headers.get('Authorization')
+        if not token:
+            return jsonify({'success': False, 'message': 'No token provided'}), 401
+
+        try:
+            token = token.replace('Bearer ', '')
+            payload = jwt.decode(token, JWT_SECRET, algorithms=['HS256'])
+            if payload.get('username') != ADMIN_USERNAME:
+                return jsonify({'success': False, 'message': 'Invalid token'}), 401
+        except jwt.ExpiredSignatureError:
+            return jsonify({'success': False, 'message': 'Token expired'}), 401
+        except jwt.InvalidTokenError:
+            return jsonify({'success': False, 'message': 'Invalid token'}), 401
+
+        return f(*args, **kwargs)
+    return decorated
 
 # ---------- 初始化桌位資料 ----------
 def init_tables():
@@ -101,6 +128,41 @@ def test_s3():
             'message': 'S3 連線失敗'
         }), 500
 
+# ---------- Admin 登入 API ----------
+@app.post("/api/admin/login")
+def admin_login():
+    data = request.get_json()
+    if not data:
+        return jsonify({'success': False, 'message': 'No data provided'}), 400
+
+    username = data.get('username')
+    password = data.get('password')
+
+    if username == ADMIN_USERNAME and password == ADMIN_PASSWORD:
+        # 生成 JWT token (24小時有效)
+        payload = {
+            'username': username,
+            'exp': datetime.now(TAIWAN_TZ) + timedelta(hours=24)
+        }
+        token = jwt.encode(payload, JWT_SECRET, algorithm='HS256')
+
+        return jsonify({
+            'success': True,
+            'token': token,
+            'message': 'Login successful'
+        })
+    else:
+        return jsonify({
+            'success': False,
+            'message': 'Invalid credentials'
+        }), 401
+
+# ---------- Token 驗證 API ----------
+@app.get("/api/admin/verify")
+@require_admin_token
+def admin_verify():
+    return jsonify({'success': True, 'message': 'Token valid'})
+
 # ---------- API：座位狀態 ----------
 @app.get("/api/status")
 def api_status():
@@ -151,8 +213,9 @@ def api_availability():
 
     return jsonify({"holds": [], "confirmed": confirmed})
 
-# ---------- API：查詢預約 ----------
+# ---------- API：查詢預約 (需要 Admin 權限) ----------
 @app.get("/api/reservations")
+@require_admin_token
 def list_reservations():
     table_id = request.args.get("table_id", type=int)
     page = max(1, request.args.get("page", default=1, type=int))
@@ -220,7 +283,7 @@ def reserve():
         if not s3_store.reserve_seats(table_id, seats):
             return jsonify(success=False, message="This table is full or seats are not enough now."), 409
 
-        # 建立預約
+        # 建立預約（使用台灣時區）
         reservation_id = str(uuid.uuid4())
         reservation_data = {
             "id": reservation_id,
@@ -244,8 +307,9 @@ def reserve():
     except Exception as e:
         return jsonify(success=False, message=f"Reservation failed: {str(e)}"), 500
 
-# ---------- API：取消預約 ----------
+# ---------- API：取消預約 (需要 Admin 權限) ----------
 @app.post("/api/cancel")
+@require_admin_token
 def cancel():
     payload = request.get_json(force=True)
     reservation_id = payload.get("reservation_id")
@@ -264,8 +328,9 @@ def cancel():
     else:
         return jsonify(success=False, message="Failed to cancel reservation"), 500
 
-# ---------- API：減少座位 ----------
+# ---------- API：減少座位 (需要 Admin 權限) ----------
 @app.post("/api/reduce")
+@require_admin_token
 def reduce_seats():
     payload = request.get_json(force=True)
     reservation_id = payload.get("reservation_id")
@@ -291,10 +356,10 @@ def reduce_seats():
             s3_store.release_seats(reservation["table_id"], current_seats)
             return jsonify(success=True, message=f"Reservation cancelled, returned {current_seats} seat(s).")
     else:
-        # 減少座位數
+        # 減少座位數（使用台灣時區）
         updated_reservation = reservation.copy()
         updated_reservation["seats_taken"] = current_seats - reduce_by
-        updated_reservation["updated_at"] = datetime.now().isoformat()
+        updated_reservation["updated_at"] = datetime.now(TAIWAN_TZ).isoformat()
 
         if s3_store.update_reservation(reservation_id, updated_reservation):
             s3_store.release_seats(reservation["table_id"], reduce_by)
@@ -302,8 +367,9 @@ def reduce_seats():
 
     return jsonify(success=False, message="Failed to reduce seats"), 500
 
-# ---------- 匯出 CSV ----------
+# ---------- 匯出 CSV (需要 Admin 權限) ----------
 @app.get("/api/reservations.csv")
+@require_admin_token
 def export_csv():
     out = io.StringIO()
     writer = csv.writer(out)
