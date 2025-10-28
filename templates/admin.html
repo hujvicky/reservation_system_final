@@ -37,11 +37,125 @@
       </div>
     </div>
   </div>
-  
+
   <script>
-    // ... (JavaScript 內容未變動，此處省略以節省篇幅) ...
-    // (您的 JavaScript 已經包含在提供的 HTML 檔案中)
-    // ...
+    function fmtTableId(n){ return 'T' + String(n).padStart(3,'0'); }
+
+    // 台灣時區格式化函數
+    function formatTaiwanTime(dateString) {
+      try {
+        return new Date(dateString).toLocaleString('zh-TW', {
+          timeZone: 'Asia/Taipei',
+          year: 'numeric',
+          month: '2-digit',
+          day: '2-digit',
+          hour: '2-digit',
+          minute: '2-digit',
+          second: '2-digit',
+          hour12: false
+        });
+      } catch (error) {
+        return dateString;
+      }
+    }
+
+    async function load(){
+      let data = [];
+      const rowsEl = document.getElementById('rows');
+      const titleEl = document.getElementById('title');
+
+      try {
+        // 1. 執行 API 請求
+        const r = await fetch('/api/reservations?page=1&page_size=500');
+
+        // 2. 🚨 檢查 HTTP 狀態碼 (HTTP status code)
+        if (!r.ok) {
+          throw new Error(`Failed to fetch data: HTTP ${r.status} ${r.statusText}`);
+        }
+
+        // 3. 解析數據
+        const jsonResponse = await r.json();
+        data = jsonResponse.data;
+
+        // 4. 更新標題和表格
+        titleEl.textContent = `Reservation Records (Total: ${data.length})`;
+
+        if (data.length === 0) {
+          rowsEl.innerHTML = `
+            <tr>
+              <td colspan="7" class="p-4 text-center text-gray-500">
+                No reservation data found. Try making a reservation first.
+              </td>
+            </tr>
+          `;
+          return;
+        }
+
+        const rows = data.map((d, idx) => {
+          const ts = formatTaiwanTime(d.created_at);
+
+          const canReduceMax = Math.max(0, Number(d.seats_taken) - 1);
+          const reduceSelect = canReduceMax > 0
+            ? `<select class="border rounded px-2 py-1" data-reduce-select="${d.id}">
+                 ${Array.from({length: canReduceMax}, (_,i)=>`<option value="${i+1}">${i+1}</option>`).join('')}
+               </select>
+               <button class="ml-2 px-3 py-1 rounded bg-gray-200 hover:bg-gray-300" data-reduce="${d.id}" data-max="${canReduceMax}">Reduce</button>`
+            : `<span class="text-gray-400">—</span>`;
+
+          return `<tr class="hover:bg-gray-50">
+            <td class="p-2 border font-mono text-xs text-gray-700">${d.id ? d.id.slice(0,8) : idx + 1}</td>
+            <td class="p-2 border text-gray-800">${fmtTableId(d.table_id)}</td>
+            <td class="p-2 border">${d.login_id||''}</td>
+            <td class="p-2 border">${d.employee_name||''}</td>
+            <td class="p-2 border">${d.seats_taken}</td>
+            <td class="p-2 border text-gray-600">${ts}</td>
+            <td class="p-2 border">
+              <div class="flex items-center gap-2">
+                ${reduceSelect}
+                <button class="px-3 py-1 rounded bg-red-500 text-white hover:bg-red-600" data-cancel="${d.id}">Cancel</button>
+              </div>
+            </td>
+          </tr>`;
+        }).join('');
+        rowsEl.innerHTML = rows;
+
+        // 5. 綁定事件監聽器
+        document.querySelectorAll('[data-cancel]').forEach(btn=>{
+          btn.addEventListener('click', async ()=>{
+            const id = btn.getAttribute('data-cancel');
+            if(!confirm('Cancel this reservation entirely?')) return;
+            // 🚨 修正：檢查 API 響應是否成功
+            const response = await fetch('/api/cancel', {method:'POST', headers:{'Content-Type':'application/json'}, body: JSON.stringify({reservation_id:id})});
+            if (response.ok) { load(); } else { alert('Failed to cancel reservation.'); }
+          });
+        });
+        document.querySelectorAll('[data-reduce]').forEach(btn=>{
+          btn.addEventListener('click', async ()=>{
+            const id = btn.getAttribute('data-reduce');
+            const sel = document.querySelector(`[data-reduce-select="${id}"]`);
+            const n = Number(sel && sel.value);
+            if(!n || n < 1){ alert('Select a number to reduce.'); return; }
+            // 🚨 修正：檢查 API 響應是否成功
+            const res = await fetch('/api/reduce', {method:'POST', headers:{'Content-Type':'application/json'}, body: JSON.stringify({reservation_id:id, reduce_by:n})});
+            const responseData = await res.json();
+            if(res.ok && responseData.success){ load(); } else { alert(responseData.message || 'Failed to reduce seats.'); }
+          });
+        });
+
+      } catch (error) {
+        // 6. 處理錯誤
+        console.error('Reservation Data Load Error:', error);
+        titleEl.textContent = `Reservation Records (Load Failed)`;
+        rowsEl.innerHTML = `
+          <tr>
+            <td colspan="7" class="p-4 text-center text-red-600">
+              Error: ${error.message}. Please check App Runner Application Logs for backend errors.
+            </td>
+          </tr>
+        `;
+      }
+    }
+    load();
   </script>
 </body>
 </html>
