@@ -8,8 +8,11 @@ from flask_cors import CORS
 from s3_store import S3Store
 from pathlib import Path
 import os, io, csv, uuid
-from datetime import datetime
+from datetime import datetime, timezone, timedelta
 import json
+
+# 定義台灣時區
+TAIWAN_TZ = timezone(timedelta(hours=8))
 
 # ---------- 基本路徑 ----------
 PROJECT_DIR = Path(__file__).resolve().parent
@@ -225,7 +228,7 @@ def reserve():
             "seats_taken": seats,
             "employee_name": employee_name,
             "login_id": login_id,
-            "created_at": datetime.now().isoformat()
+            "created_at": datetime.now(TAIWAN_TZ).isoformat()
         }
 
         # 儲存預約和防重複鍵
