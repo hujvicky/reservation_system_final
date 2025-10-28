@@ -1,13 +1,344 @@
+
 <!DOCTYPE html>
-<html lang="zh-Hant">
+<html lang="en">
 <head>
   <meta charset="UTF-8">
   <meta name="viewport" content="width=device-width, initial-scale=1.0">
-  <title>Login</title>
-  <script src="https://cdn.tailwindcss.com"></script>
+  <title>Admin Login</title>
+  <script src="cdn.tailwindcss.com"></script>
 </head>
-<body class="p-6">
-  <h1 class="text-2xl font-bold mb-4">Login</h1>
-  <p class="text-gray-600">此頁僅為範例。整合公司 SSO 後，可在前端預先填入姓名與 Login ID。</p>
+<body class="bg-gray-100 min-h-screen flex items-center justify-center">
+  <div class="bg-white p-8 rounded-lg shadow-md w-full max-w-md">
+    <h1 class="text-2xl font-bold mb-6 text-center text-gray-800">Admin Login</h1>
+    
+    <form id="loginForm" class="space-y-4">
+      <div>
+        <label for="username" class="block text-sm font-medium text-gray-700 mb-1">Username</label>
+        <input 
+          type="text" 
+          id="username" 
+          name="username" 
+          required
+          class="w-full px-3 py-2 border border-gray-300 rounded-md focus:outline-none focus:ring-2 focus:ring-indigo-500 focus:border-transparent"
+          placeholder="Enter username"
+        >
+      </div>
+      
+      <div>
+        <label for="password" class="block text-sm font-medium text-gray-700 mb-1">Password</label>
+        <input 
+          type="password" 
+          id="password" 
+          name="password" 
+          required
+          class="w-full px-3 py-2 border border-gray-300 rounded-md focus:outline-none focus:ring-2 focus:ring-indigo-500 focus:border-transparent"
+          placeholder="Enter password"
+        >
+      </div>
+      
+      <button 
+        type="submit" 
+        class="w-full bg-indigo-600 text-white py-2 px-4 rounded-md hover:bg-indigo-700 focus:outline-none focus:ring-2 focus:ring-indigo-500 focus:ring-offset-2 transition duration-200"
+      >
+        Login
+      </button>
+    </form>
+    
+    <div id="errorMessage" class="mt-4 text-red-600 text-sm text-center hidden"></div>
+    
+    <div class="mt-6 text-center">
+      <a href="/index.html" class="text-indigo-600 hover:text-indigo-800 text-sm">Back to Seat Reservation System</a>
+    </div>
+  </div>
+
+  <script>
+    document.getElementById('loginForm').addEventListener('submit', async function(e) {
+      e.preventDefault();
+      
+      const username = document.getElementById('username').value;
+      const password = document.getElementById('password').value;
+      const errorDiv = document.getElementById('errorMessage');
+      
+      // Clear previous error messages
+      errorDiv.classList.add('hidden');
+      
+      try {
+        const response = await fetch('/api/admin/login', {
+          method: 'POST',
+          headers: {
+            'Content-Type': 'application/json',
+          },
+          body: JSON.stringify({
+            username: username,
+            password: password
+          })
+        });
+        
+        const result = await response.json();
+        
+        if (result.success) {
+          // Login successful, save token and redirect to admin page
+          localStorage.setItem('adminToken', result.token);
+          window.location.href = '/admin.html';
+        } else {
+          // Show error message
+          errorDiv.textContent = result.message || 'Login failed. Please check your credentials.';
+          errorDiv.classList.remove('hidden');
+        }
+      } catch (error) {
+        console.error('Login error:', error);
+        errorDiv.textContent = 'Login process failed. Please try again later.';
+        errorDiv.classList.remove('hidden');
+      }
+    });
+    
+    // Check if already logged in
+    if (localStorage.getItem('adminToken')) {
+      // Verify if token is valid
+      fetch('/api/admin/verify', {
+        headers: {
+          'Authorization': 'Bearer ' + localStorage.getItem('adminToken')
+        }
+      })
+      .then(response => response.json())
+      .then(result => {
+        if (result.success) {
+          window.location.href = '/admin.html';
+        }
+      })
+      .catch(() => {
+        // Token invalid, clear it
+        localStorage.removeItem('adminToken');
+      });
+    }
+  </script>
 </body>
 </html>
+
+``` Note: Please be mindful when interacting with displayed links.
+
+## 步驟 2：修改 admin.html（英文版）
+
+```html
+
+<!DOCTYPE html>
+<html lang="en">
+<head>
+  <meta charset="UTF-8">
+  <meta name="viewport" content="width=device-width, initial-scale=1.0">
+  <title>Admin Panel • Reservations</title>
+  <script src="cdn.tailwindcss.com"></script>
+</head>
+<body class="bg-gray-50 p-6">
+  <div class="max-w-7xl mx-auto">
+    <div class="flex items-center justify-between mb-4">
+      <h1 class="text-2xl font-bold">Admin Panel</h1>
+      <div class="flex gap-3">
+        <a href="/index.html" class="px-3 py-2 rounded bg-gray-200 hover:bg-gray-300">Go to Seating Map</a>
+        <a href="/api/reservations.csv" class="px-3 py-2 rounded bg-indigo-600 text-white hover:bg-indigo-700">Export Report (CSV)</a>
+        <button id="logoutBtn" class="px-3 py-2 rounded bg-red-500 text-white hover:bg-red-600">Logout</button>
+      </div>
+    </div>
+
+    <div class="bg-white rounded-xl shadow p-4">
+      <div class="text-lg font-semibold mb-3" id="title">Reservation Records</div>
+      <div class="overflow-x-auto">
+        <table class="min-w-full text-sm">
+          <thead>
+            <tr class="bg-gray-100 text-gray-700">
+              <th class="px-3 py-2 text-left">ID</th>
+              <th class="px-3 py-2 text-left">Table ID</th>
+              <th class="px-3 py-2 text-left">Login ID</th>
+              <th class="px-3 py-2 text-left">Employee Name</th>
+              <th class="px-3 py-2 text-left">Seats Reserved</th>
+              <th class="px-3 py-2 text-left">Timestamp (Local)</th>
+              <th class="px-3 py-2 text-left">Action</th>
+            </tr>
+          </thead>
+          <tbody id="rows"></tbody>
+        </table>
+      </div>
+    </div>
+  </div>
+
+  <script>
+    // Verify authentication status
+    function checkAuth() {
+      const token = localStorage.getItem('adminToken');
+      if (!token) {
+        window.location.href = '/login.html';
+        return false;
+      }
+      
+      // Verify token
+      fetch('/api/admin/verify', {
+        headers: {
+          'Authorization': 'Bearer ' + token
+        }
+      })
+      .then(response => response.json())
+      .then(result => {
+        if (!result.success) {
+          localStorage.removeItem('adminToken');
+          window.location.href = '/login.html';
+        }
+      })
+      .catch(() => {
+        localStorage.removeItem('adminToken');
+        window.location.href = '/login.html';
+      });
+      
+      return true;
+    }
+    
+    // Logout functionality
+    document.getElementById('logoutBtn').addEventListener('click', function() {
+      if (confirm('Are you sure you want to logout?')) {
+        localStorage.removeItem('adminToken');
+        window.location.href = '/login.html';
+      }
+    });
+    
+    // Check authentication on page load
+    if (!checkAuth()) {
+      // If authentication fails, stop executing other scripts
+      throw new Error('Authentication required');
+    }
+
+    function fmtTableId(n){ return 'T' + String(n).padStart(3,'0'); }
+
+    async function load(){
+      const token = localStorage.getItem('adminToken');
+      const r = await fetch('/api/reservations?page=1&page_size=500', {
+        headers: {
+          'Authorization': 'Bearer ' + token
+        }
+      });
+      
+      if (r.status === 401) {
+        localStorage.removeItem('adminToken');
+        alert('Session expired. Please login again.');
+        window.location.href = '/login.html';
+        return;
+      }
+      
+      const { data } = await r.json();
+      document.getElementById('title').textContent = `Reservation Records (Total: ${data.length})`;
+      const rows = data.map((d, idx) => {
+        const ts = new Date(d.created_at).toLocaleString();
+        const canReduceMax = Math.max(0, Number(d.seats_taken) - 1);
+        const reduceSelect = canReduceMax > 0
+          ? `<select class="border rounded px-2 py-1" data-reduce-select="${d.id}">
+               ${Array.from({length: canReduceMax}, (_,i)=>`<option value="${i+1}">${i+1}</option>`).join('')}
+             </select>
+             <button class="ml-2 px-3 py-1 rounded bg-gray-200 hover:bg-gray-300" data-reduce="${d.id}" data-max="${canReduceMax}">Reduce</button>`
+          : `<span class="text-gray-400">—</span>`;
+
+        return `<tr class="${idx%2?'bg-gray-50':''}">
+          <td class="px-3 py-2">${idx+1}</td>
+          <td class="px-3 py-2 font-medium">${fmtTableId(d.table_id)}</td>
+          <td class="px-3 py-2">${d.login_id||''}</td>
+          <td class="px-3 py-2">${d.employee_name||''}</td>
+          <td class="px-3 py-2">${d.seats_taken}</td>
+          <td class="px-3 py-2">${ts}</td>
+          <td class="px-3 py-2">
+            <div class="flex items-center gap-2">
+              ${reduceSelect}
+              <button class="px-3 py-1 rounded bg-red-500 text-white hover:bg-red-600" data-cancel="${d.id}">Cancel</button>
+            </div>
+          </td>
+        </tr>`;
+      }).join('');
+      document.getElementById('rows').innerHTML = rows;
+
+      document.querySelectorAll('[data-cancel]').forEach(btn=>{
+        btn.addEventListener('click', async ()=>{
+          const id = btn.getAttribute('data-cancel');
+          if(!confirm('Cancel this reservation entirely?')) return;
+          const token = localStorage.getItem('adminToken');
+          const response = await fetch('/api/cancel', {
+            method:'POST', 
+            headers:{
+              'Content-Type':'application/json',
+              'Authorization': 'Bearer ' + token
+            }, 
+            body: JSON.stringify({reservation_id:id})
+          });
+          
+          if (response.status === 401) {
+            localStorage.removeItem('adminToken');
+            alert('Session expired. Please login again.');
+            window.location.href = '/login.html';
+            return;
+          }
+          
+          load();
+        });
+      });
+      
+      document.querySelectorAll('[data-reduce]').forEach(btn=>{
+        btn.addEventListener('click', async ()=>{
+          const id = btn.getAttribute('data-reduce');
+          const sel = document.querySelector(`[data-reduce-select="${id}"]`);
+          const n = Number(sel && sel.value);
+          if(!n || n < 1){ alert('Please select a number to reduce.'); return; }
+          const token = localStorage.getItem('adminToken');
+          const res = await fetch('/api/reduce', {
+            method:'POST', 
+            headers:{
+              'Content-Type':'application/json',
+              'Authorization': 'Bearer ' + token
+            }, 
+            body: JSON.stringify({reservation_id:id, reduce_by:n})
+          });
+          
+          if (res.status === 401) {
+            localStorage.removeItem('adminToken');
+            alert('Session expired. Please login again.');
+            window.location.href = '/login.html';
+            return;
+          }
+          
+          const data = await res.json();
+          if(!data.success){ alert(data.message || 'Failed to reduce seats.'); return; }
+          load();
+        });
+      });
+    }
+    load();
+  </script>
+</body>
+</html>
+
+``` Note: Please be mindful when interacting with displayed links.
+
+## 主要變更內容
+
+**Login Page 英文化：**
+- "Admin Login" 標題
+- "Username" 和 "Password" 標籤
+- "Enter username/password" 提示文字
+- "Login" 按鈕
+- "Back to Seat Reservation System" 連結
+- 所有錯誤訊息都改為英文
+
+**Admin Panel 英文化：**
+- 保持原有的英文介面
+- 加入 "Are you sure you want to logout?" 確認訊息
+- "Session expired. Please login again." 訊息
+- "Please select a number to reduce." 提示
+- "Failed to reduce seats." 錯誤訊息
+
+## 後端 API 需求
+
+現在您需要實作後端 API 來支援這個登入系統。請告訴我：
+
+1. **您使用的後端框架**（Flask、FastAPI、Express.js 等）
+2. **目前的 API 檔案結構**
+3. **偏好的安全等級**（簡單版本或進階版本）
+
+這樣我就能提供對應的後端程式碼來完成整個登入驗證系統！
+
+**預設帳號密碼：**
+- Username: `admin`
+- Password: `888888`
