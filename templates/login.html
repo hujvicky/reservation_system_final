@@ -1,12 +1,10 @@
-```html
-
 <!DOCTYPE html>
 <html lang="en">
 <head>
   <meta charset="UTF-8">
   <meta name="viewport" content="width=device-width, initial-scale=1.0">
   <title>Admin Login</title>
-  <script src="cdn.tailwindcss.com"></script>
+  <script src="https://cdn.tailwindcss.com"></script>
 </head>
 <body class="bg-gray-100 min-h-screen flex items-center justify-center">
   <div class="bg-white p-8 rounded-lg shadow-md w-full max-w-md">
@@ -64,13 +62,7 @@
       </a>
     </div>
 
-    <!-- 開發提示 (可在正式環境移除) -->
-    <div class="mt-4 p-3 bg-blue-50 border border-blue-200 rounded-md text-xs text-blue-700">
-      <strong>Demo Credentials:</strong><br>
-      Username: admin<br>
-      Password: 888888
     </div>
-  </div>
 
   <script>
     // 工具函數：顯示/隱藏載入狀態
@@ -99,7 +91,7 @@
       errorDiv.textContent = message;
       errorDiv.classList.remove('hidden');
       
-      // 3秒後自動隱藏錯誤訊息
+      // 5秒後自動隱藏錯誤訊息 (延時已從 3 秒改為 5 秒)
       setTimeout(() => {
         errorDiv.classList.add('hidden');
       }, 5000);
@@ -138,6 +130,7 @@
       clearMessages();
 
       try {
+        // 【注意】此處的 /api/admin/login 路由需由後端 app.py 提供
         const response = await fetch('/api/admin/login', {
           method: 'POST',
           headers: {
@@ -179,6 +172,7 @@
       if (!token) return;
 
       try {
+        // 【注意】此處的 /api/admin/verify 路由需由後端 app.py 提供
         const response = await fetch('/api/admin/verify', {
           headers: {
             'Authorization': 'Bearer ' + token
@@ -210,6 +204,7 @@
     // 鍵盤快捷鍵：Enter 鍵提交表單
     document.addEventListener('keydown', function(e) {
       if (e.key === 'Enter' && !document.getElementById('loginButton').disabled) {
+        // 觸發表單提交事件
         document.getElementById('loginForm').dispatchEvent(new Event('submit'));
       }
     });
@@ -219,5 +214,3 @@
   </script>
 </body>
 </html>
-
-``` Note: Please be mindful when interacting with displayed links.
