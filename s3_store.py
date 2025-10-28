@@ -229,34 +229,36 @@ class S3Store:
             logger.error(f"檢查 login_id 失敗: {e}")
             return False
 
+    # s3_store (1).py (片段)
+
     def get_all_reservations(self):
-        """獲取所有預約"""
+        """獲取所有預訂資料"""
+        reservations = []
         try:
+            # 使用 list_objects_v2 查詢 Bucket 中所有以 'reservations/' 開頭的物件
             response = self.s3_client.list_objects_v2(
                 Bucket=self.bucket_name,
-                Prefix="reservations/"
+                Prefix='reservations/'
             )
-
-            reservations = []
+            
+            # 檢查是否有物件
             if 'Contents' in response:
                 for obj in response['Contents']:
                     if obj['Key'].endswith('.json'):
+                        # 讀取物件內容
                         try:
-                            obj_response = self.s3_client.get_object(
-                                Bucket=self.bucket_name,
-                                Key=obj['Key']
-                            )
-                            reservation_data = json.loads(obj_response['Body'].read().decode('utf-8'))
+                            # ... 讀取物件並解碼 ...
                             reservations.append(reservation_data)
                         except Exception as e:
                             logger.warning(f"無法讀取預約檔案 {obj['Key']}: {e}")
+            
+            # <<< 錯誤點在此：此處沒有處理分頁 (Pagination)
 
             return reservations
 
         except ClientError as e:
             logger.error(f"獲取所有預約失敗: {e}")
             return []
-
     def save_idempotency_key(self, key, data):
         """儲存防重複鍵"""
         try:
