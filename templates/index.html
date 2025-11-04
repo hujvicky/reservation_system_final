@@ -1,11 +1,10 @@
-
 <!DOCTYPE html>
 <html lang="en">
 <head>
   <meta charset="UTF-8" />
   <meta name="viewport" content="width=device-width,initial-scale=1.0" />
   <title>Seating Map • Reservations</title>
-  <script src="cdn.tailwindcss.com"></script>
+  <script src="https://cdn.tailwindcss.com"></script>
   <style>
     #seating-map{
       display:grid;
@@ -24,47 +23,35 @@
       display:flex;align-items:center;justify-content:center;
       font-weight:700;cursor:pointer;user-select:none;
       transition:transform .15s ease, box-shadow .15s ease;
-      text-align:center;line-height:1.15;padding:8px;
-  box-sizing:border-box;
+      text-align:center;line-height:1.15;padding:10px
     }
     .table-card:hover{transform:translateY(-2px);box-shadow:0 10px 22px rgba(0,0,0,.08)}
     .aisle{grid-column:7;width:100%;height:100%;min-height:130px;border-left:3px dashed #bbb;border-right:3px dashed #bbb;position:relative}
     .aisle::before{content:'AISLE';position:absolute;top:50%;left:50%;transform:translate(-50%,-50%) rotate(-90deg);font-size:12px;color:#999;letter-spacing:2px}
-    .row-red{background:#f8cbad;border-color:#c55a11}
-    .row-yellow{background:#ffd966;border-color:#d4aa00}
-    .row-blue{background:#bdd7ee;border-color:#2f75b5}
-    .status-disabled{opacity:.55;cursor:not-allowed;pointer-events:none}
     
+    /* === (1) START: 部門顏色 === */
+    /* 舊的 row-red, row-yellow, row-blue 已移除 */
+    .dept-eero { background:#d8b4fe; border-color:#9333ea; } /* Purple */
+    .dept-ops { background:#bbf7d0; border-color:#22c55e; } /* Green */
+    .dept-hw { background:#bae6fd; border-color:#0ea5e9; }  /* Sky Blue */
+    .dept-lab { background:#99f6e4; border-color:#14b8a6; }  /* Teal */
+    .dept-sw { background:#fef08a; border-color:#ca8a04; }  /* Yellow */
+    .dept-ai { background:#fecaca; border-color:#ef4444; }  /* Red */
+    .dept-others { background:#e5e7eb; border-color:#6b7280; } /* Gray */
+
     /* 部門名稱樣式 */
-    .department-name {
+    .dept-name {
       display: block;
-      font-size: 10px;
-      color: #444;
-      font-weight: 700;
-      margin-bottom: 2px;
-      line-height: 1;
+      font-size: 13px;
+      font-weight: 800;
       text-transform: uppercase;
-      letter-spacing: 0.5px;
+      line-height: 1.2;
+      margin-bottom: 4px;
+      color: #1f2937; /* 深灰色字 */
     }
-    
-    /* 調整桌子卡片的內容排列 */
-    .table-card > div {
-      display: flex;
-      flex-direction: column;
-      align-items: center;
-      justify-content: center;
-      height: 100%;
-    }
-    
-    /* 不同部門的顏色配置 */
-    .dept-eero .department-name { color: #3b82f6; }
-    .dept-operations .department-name { color: #10b981; }
-    .dept-Hardware .department-name { color: #f59e0b; }
-    .dept-Software .department-name { color: #ef4444; }
-    .dept-AI .department-name { color: #06b6d4; }
-    .dept-Lab .department-name { color: #8b5cf6; }
-    .dept-Others .department-name { color: #6b7280; }
-    
+    /* === (1) END: 部門顏色 === */
+
+    .status-disabled{opacity:.55;cursor:not-allowed;pointer-events:none}
     /* Modal */
     .modal-backdrop{position:fixed;inset:0;background:rgba(0,0,0,.45);display:none;align-items:center;justify-content:center;z-index:1000}
     .modal-backdrop.show{display:flex}
@@ -80,37 +67,38 @@
     .btn.primary[disabled]{opacity:.6;cursor:not-allowed}
     .count{display:block;font-weight:600;font-size:12px;color:#374151}
 
+    /* 讓舞台列與頁面等寬（你目前沒有 sticky，就保留 full-width 視覺） */
     .full-width-fix{
       width:100%;
-      background-color:rgba(243,244,246,.95);
+      background-color:rgba(243,244,f6,.95);
     }
   </style>
 </head>
 <body class="bg-gray-100 min-h-screen py-8">
   <div class="w-full flex flex-col items-center">
-    <!-- Top Bar -->
     <div class="full-width-fix grid grid-cols-3 items-center gap-3 py-3 px-4 shadow-sm mb-4">
       <a href="/reports.html"
          class="justify-self-start text-[26px] text-indigo-600 hover:text-indigo-800 font-semibold underline transition-transform hover:scale-105">
         View All Reservations
       </a>
+    
+
       <div></div>
     </div>
 
     <p id="msg" class="text-sm text-gray-600 mb-3" aria-live="polite"></p>
 
+    
     <div class="mx-auto" style="width:max-content;">
-      <!-- STAGE -->
-      <div class="w-full flex justify-center mb-6">
-        <div class="w-[900px] py-4 rounded-2xl border-4 border-red-500 bg-white font-extrabold text-red-500 text-4xl tracking-[0.25em] text-center shadow-[inset_0_0_0_6px_rgba(239,68,68,0.15)]">
-          S T A G E
-        </div>
-      </div>
 
-      <!-- Seating map -->
+      <div class="w-full flex justify-center mb-6">
+  <div class="w-[900px] py-4 rounded-2xl border-4 border-red-500 bg-white font-extrabold text-red-500 text-4xl tracking-[0.25em] text-center shadow-[inset_0_0_0_6px_rgba(239,68,68,0.15)]">
+    S T A G E
+  </div>
+</div>
+
       <div id="seating-map" aria-label="Seating map"></div>
 
-      <!-- Entrance / Exit -->
       <div class="mt-4">
         <div class="w-[120px] h-[80px] border-4 border-green-600 rounded-md flex flex-col items-center justify-center bg-white shadow-md">
           <span class="text-green-600 font-bold text-sm tracking-wide leading-none">ENTRANCE</span>
@@ -120,7 +108,6 @@
     </div>
   </div>
 
-  <!-- Reservation Modal -->
   <div id="reserve-modal" class="modal-backdrop" role="dialog" aria-modal="true" aria-labelledby="reserve-title">
     <div class="modal-card">
       <h3 id="reserve-title">Reserve Table <span id="rm-table" style="font-variant-numeric: tabular-nums;"></span></h3>
@@ -147,34 +134,27 @@
   <script>
     const TOTAL=108, PER_ROW=12;
 
-    // 更新後的七個部門對照表
-    const DEPARTMENT_MAPPING = {
-      1: 'eero', 2: 'eero', 3: 'eero', 4: 'eero', 5: 'eero', 6: 'eero',
-      7: 'eero', 8: 'eero', 9: 'eero', 10: 'eero', 11: 'eero', 12: 'eero',
-      13: 'eero', 14: 'eero',
-      15: 'Hardware', 16: 'Hardware', 17: 'Hardware', 18: 'Hardware', 19: 'Hardware',
-      20: 'Hardware', 21: 'Hardware', 22: 'Hardware', 23: 'Hardware', 24: 'Hardware',
-      25: 'Hardware', 26: 'Hardware', 27: 'Hardware', 28: 'Hardware', 29: 'Hardware',
-      30: 'Hardware', 31: 'Hardware', 32: 'Hardware', 33: 'Hardware', 34: 'Hardware',
-      35: 'operations', 36: 'operations', 37: 'operations', 38: 'operations', 39: 'operations',
-      40: 'operations', 41: 'operations', 42: 'operations', 43: 'operations', 44: 'operations',
-      45: 'operations', 46: 'operations', 47: 'operations', 48: 'operations', 49: 'operations',
-      50: 'operations', 51: 'operations', 52: 'operations', 53: 'operations', 54: 'operations',
-      55: 'operations', 56: 'operations', 57: 'operations', 58: 'operations', 59: 'operations',
-      60: 'Software', 61: 'Software', 62: 'Software', 63: 'Software', 64: 'Software',
-      65: 'Software', 66: 'Software', 67: 'Software', 68: 'Software', 69: 'Software',
-      70: 'Software', 71: 'Software', 72: 'Software', 73: 'Software', 74: 'Software',
-      75: 'Software', 76: 'Software', 77: 'Software', 78: 'Software', 79: 'Software',
-      80: 'Software', 81: 'Software', 82: 'Software', 83: 'Software', 84: 'Software',
-      85: 'AI', 86: 'AI', 87: 'AI', 88: 'AI', 89: 'AI', 90: 'AI', 91: 'AI',
-      92: 'AI', 93: 'AI', 94: 'AI', 95: 'AI', 96: 'AI', 97: 'AI', 98: 'AI',
-      99: 'Lab', 100: 'Lab', 101: 'Lab', 102: 'Lab', 103: 'Lab',
-      104: 'Others', 105: 'Others', 106: 'Others', 107: 'Others', 108: 'Others'
-    };
+    // === (2) START: 部門資料定義 ===
+    const departments = [
+      { name: 'eero', count: 14, cssClass: 'dept-eero' },
+      { name: 'operations', count: 25, cssClass: 'dept-ops' },
+      { name: 'Hardware', count: 20, cssClass: 'dept-hw' },
+      { name: 'Lab', count: 5, cssClass: 'dept-lab' },
+      { name: 'Software', count: 25, cssClass: 'dept-sw' },
+      { name: 'AI', count: 14, cssClass: 'dept-ai' },
+      { name: 'Others', count: 5, cssClass: 'dept-others' }
+    ];
 
-    function getDepartmentName(tableId) {
-      return DEPARTMENT_MAPPING[tableId] || '';
-    }
+    // 建立一個查詢表 (table ID -> department info)
+    // 總和 14+25+20+5+25+14+5 = 108
+    const tableDeptMap = [];
+    departments.forEach(dept => {
+      for (let i = 0; i < dept.count; i++) {
+        tableDeptMap.push({ name: dept.name, cssClass: dept.cssClass });
+      }
+    });
+    // === (2) END: 部門資料定義 ===
+
 
     function showMessage(t,type='info'){
       const el=document.getElementById('msg');
@@ -182,28 +162,41 @@
       el.className='text-sm mb-3 '+(type==='success'?'text-green-700':type==='error'?'text-red-700':'text-gray-600');
     }
 
-    // Build seating grid with department names
+    // Build seating grid with placeholders for counts
     const wrap=document.getElementById('seating-map');
     let cnt=0;
     for(let i=1;i<=TOTAL;i++){
+      // === (3) START: 修改迴圈 ===
+      // 根據桌號 i (i從1開始) 查詢部門資訊 (map陣列從0開始)
+      const deptInfo = tableDeptMap[i - 1];
+
       const d=document.createElement('div');
-      d.className='table-card';
+      d.className='table-card'; // 基本 class
       d.dataset.tableId=i;
-
-      // 添加部門名稱
-      const deptName = getDepartmentName(i);
-      const deptDisplay = deptName ? `<span class="department-name">${deptName}</span>` : '';
-      d.innerHTML=`<div>${deptDisplay}<span class="table-number">Table ${i}</span><span class="count" data-left="${i}">(10 left)</span></div>`;
-
-      // 添加部門樣式類別
-      if(deptName) {
-        d.classList.add(`dept-${deptName}`);
+      
+      // 加上部門的 CSS 顏色 class
+      if (deptInfo) {
+        d.classList.add(deptInfo.cssClass);
+      } else {
+        d.classList.add('dept-others'); // 預防萬一
       }
 
+      // 插入包含部門名稱的 HTML
+      d.innerHTML=`<div>
+          <span class="dept-name">${deptInfo ? deptInfo.name : 'N/A'}</span>
+          Table ${i}
+          <span class="count" data-left="${i}">(10 left)</span>
+        </div>`;
+      
+      // 移除舊的 row-based 顏色邏輯
+      /*
       const row=Math.ceil(i/PER_ROW);
       if(row<=3) d.classList.add('row-red');
       else if(row<=6) d.classList.add('row-yellow');
       else d.classList.add('row-blue');
+      */
+      // === (3) END: 修改迴圈 ===
+
       wrap.appendChild(d);
       cnt++;
       if(cnt%6===0 && cnt%12!==0){
@@ -310,7 +303,9 @@
           return;
         }
 
+        // 成功：先記桌號，避免被 closeModal() 清空
         const tableIdJustBooked=currentTableId;
+
         closeModal();
         await updateCounts();
 
@@ -327,31 +322,3 @@
   </script>
 </body>
 </html>
-
-``` Note: Please be mindful when interacting with displayed links.
-
-## 主要更新內容
-
-### **部門分配更新**
-- **eero**：14 個桌位（1-14）- 藍色標識
-- **Hardware**：20 個桌位（15-34）- 橙色標識
-- **operations**：25 個桌位（35-59）- 綠色標識
-- **Software**：25 個桌位（60-84）- 紅色標識
-- **AI**：14 個桌位（85-98）- 青色標識
-- **Lab**：5 個桌位（99-103）- 紫色標識
-- **Others**：5 個桌位（104-108）- 灰色標識
-
-### **新增功能**
-- 每個桌位上方顯示部門名稱
-- 不同部門使用不同顏色區分
-- 連續區塊分配，便於團隊協作
-- 保持原有的預訂功能完整性
-
-## 部署步驟
-
-1. **替換 HTML 檔案**：將上述完整程式碼替換您現有的檔案
-2. **推送到程式碼儲存庫**：提交所有變更
-3. **等待 AWS App Runner 部署**：通常 2-5 分鐘完成
-4. **測試功能**：確認部門名稱正確顯示且預訂功能正常
-
-現在您的座位預訂系統就會按照新的部門需求顯示所有桌位，每個部門都有清楚的視覺標識！
