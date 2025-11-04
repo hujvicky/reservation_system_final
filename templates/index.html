@@ -24,7 +24,8 @@
       display:flex;align-items:center;justify-content:center;
       font-weight:700;cursor:pointer;user-select:none;
       transition:transform .15s ease, box-shadow .15s ease;
-      text-align:center;line-height:1.15;padding:10px
+      text-align:center;line-height:1.15;padding:8px;
+  box-sizing:border-box;
     }
     .table-card:hover{transform:translateY(-2px);box-shadow:0 10px 22px rgba(0,0,0,.08)}
     .aisle{grid-column:7;width:100%;height:100%;min-height:130px;border-left:3px dashed #bbb;border-right:3px dashed #bbb;position:relative}
@@ -37,7 +38,7 @@
     /* 部門名稱樣式 */
     .department-name {
       display: block;
-      font-size: 9px;
+      font-size: 10px;
       color: #444;
       font-weight: 700;
       margin-bottom: 2px;
@@ -192,7 +193,7 @@
       // 添加部門名稱
       const deptName = getDepartmentName(i);
       const deptDisplay = deptName ? `<span class="department-name">${deptName}</span>` : '';
-      d.innerHTML=`<div>${deptDisplay}Table ${i}<span class="count" data-left="${i}">(10 left)</span></div>`;
+      d.innerHTML=`<div>${deptDisplay}<span class="table-number">Table ${i}</span><span class="count" data-left="${i}">(10 left)</span></div>`;
 
       // 添加部門樣式類別
       if(deptName) {
