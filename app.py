@@ -49,7 +49,7 @@ def require_admin_token(f):
 
         try:
             token = token.replace('Bearer ', '')
-            payload = jwt.decode(token, JWT_SECRET, algorithms=['HS256'])
+            payload = jwt.decode(token, JWT_SECRET, algorithms=['HS26'])
             if payload.get('username') != ADMIN_USERNAME:
                 return jsonify({'success': False, 'message': 'Invalid token'}), 401
         except jwt.ExpiredSignatureError:
@@ -177,37 +177,42 @@ def api_status():
     if not tables_data:
         return jsonify({"tables": []})
 
-    # === (NEW) START: 查詢所有訂位並建立查詢表 ===
+    # === (MODIFIED) START: 查詢所有訂位並建立查詢表 (包含座位數) ===
     
     # 1. 取得所有訂位紀錄
     all_reservations = s3_store.get_all_reservations()
     
-    # 2. 建立一個 map (table_id_str -> [name1, name2, ...])
+    # 2. 建立一個 map (table_id_str -> [ {name:..., seats:...}, ... ])
     reservations_map = {}
     for r in all_reservations:
-        # 使用 str() 確保 key 的型別一致 (S3 table key 是 string)
         table_id_str = str(r.get("table_id"))
-        name = r.get("employee_name", "Unknown") # 取得 'employee_name'
+        name = r.get("employee_name", "Unknown")
+        # (NEW) 取得 'seats_taken'，如果沒有則預設為 1
+        seats = r.get("seats_taken", 1) 
         
         if table_id_str not in reservations_map:
             reservations_map[table_id_str] = []
-        reservations_map[table_id_str].append(name)
+            
+        # (MODIFIED) 加入一個物件，包含姓名和座位數
+        reservations_map[table_id_str].append({
+            "name": name,
+            "seats": seats
+        })
         
-    # === (NEW) END ===
+    # === (MODIFIED) END ===
 
     tables_list = []
-    # tables_data.keys() 的 key 已經是 string (來自 init_tables)
     for table_id_str in sorted(tables_data.keys(), key=int):
         table = tables_data[table_id_str]
         
-        # (NEW) 從 map 中取得這張桌子的訂位名單，如果沒有就給空陣列
-        names_list = reservations_map.get(table_id_str, []) 
+        # 從 map 中取得這張桌子的訂位清單 (物件陣列)
+        reservation_list = reservations_map.get(table_id_str, []) 
         
         # (MODIFIED) 將 'reservations' 欄位加入回傳
         tables_list.append({
             "table_id": table["id"],
             "seats_left": table["seats_left"],
-            "reservations": names_list  # <--- 這就是前端需要的新欄位
+            "reservations": reservation_list  # <--- 這就是前端需要的新欄位
         })
 
     return jsonify({"tables": tables_list})
