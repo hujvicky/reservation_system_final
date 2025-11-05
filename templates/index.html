@@ -161,4 +161,207 @@
         21, 22, 23, 24, 25, 26, 27, 28, 29, 30, 31, 32, 33, 34, 35, 36, 
         37, 38, 39, 40
       ],
-      // Hardware (1
+      // Hardware (15桌)
+      'HW': [
+        41, 42, 43, 44, 45, 46, 47, 48, 49, 50, 51, 52, 53, 54, 55
+      ],
+      // Software (18桌)
+      'SW': [
+        56, 57, 58, 59, 60, 61, 62, 63, 64, 65, 66, 67, 68, 69, 70, 71, 
+        72, 73
+      ],
+      // AI Team (9桌)
+      'AI': [
+        74, 75, 76, 77, 78, 79, 80, 81, 82
+      ],
+      // Devices (10桌)
+      'DEVICES': [
+        83, 84, 85, 86, 87, 88, 89, 90, 91, 92
+      ],
+      // Others (5桌)
+      'OTHERS': [
+        93, 94, 95, 96, 97
+      ],
+      // TPM (5桌)
+      'TPM': [
+        98, 99, 100, 101, 102
+      ],
+      // Sidewalk (6桌)
+      'SIDEWALK': [
+        103, 104, 105, 106, 107, 108
+      ]
+    };
+
+    // 3. 建立一個反向查詢表 (Table ID -> Group Info)
+    const tableIdToGroupMap = {};
+    // 預設群組 (雖然這次 1-108 都有分配，但留著比較保險)
+    const defaultGroupInfo = groupConfig['OTHERS']; 
+    
+    // 遍歷設定檔，建立查詢表
+    for (const groupKey in tableGroupConfig) {
+      if (groupConfig[groupKey]) {
+        const groupInfo = groupConfig[groupKey];
+        const tableIds = tableGroupConfig[groupKey];
+        
+        tableIds.forEach(tableId => {
+          tableIdToGroupMap[tableId] = groupInfo;
+        });
+      }
+    }
+    // === (2) END: 桌位群組定義 ===
+
+
+    function showMessage(t,type='info'){
+      const el=document.getElementById('msg');
+      el.textContent=t||'';
+      el.className='text-sm mb-3 '+(type==='success'?'text-green-700':type==='error'?'text-red-700':'text-gray-600');
+    }
+
+    // Build seating grid with placeholders for counts
+    const wrap=document.getElementById('seating-map');
+    let cnt=0;
+    for(let i=1;i<=TOTAL;i++){
+      // === (3) START: 修改迴圈 ===
+      // 根據桌號 i，查詢它屬於哪個群組
+      const groupInfo = tableIdToGroupMap[i] || defaultGroupInfo; 
+
+      const d=document.createElement('div');
+      d.className='table-card';
+      d.dataset.tableId=i;
+      
+      // 加上群組的 CSS 顏色 class
+      d.classList.add(groupInfo.cssClass);
+
+      // 插入包含群組名稱的 HTML
+      d.innerHTML=`<div>
+          <span class="dept-name">${groupInfo.displayName}</span>
+          Table ${i}
+          <span class="count" data-left="${i}">(10 left)</span>
+        </div>`;
+      
+      // === (3) END: 修改迴圈 ===
+
+      wrap.appendChild(d);
+      cnt++;
+      if(cnt%6===0 && cnt%12!==0){
+        const a=document.createElement('div');a.className='aisle';wrap.appendChild(a);
+      }
+      if(cnt===12) cnt=0;
+    }
+
+    // Fetch status and update labels
+    async function updateCounts(){
+      try{
+        const r=await fetch('/api/status');
+        if(!r.ok) return;
+        const { tables } = await r.json();
+        tables.forEach(t=>{
+          const card=document.querySelector(`.table-card[data-table-id="${t.table_id}"]`);
+          const span=document.querySelector(`.count[data-left="${t.table_id}"]`);
+          if(card && span){
+            span.textContent=`(${t.seats_left} left)`;
+            card.classList.toggle('status-disabled', t.seats_left <= 0);
+          }
+        });
+      }catch(e){ /* ignore */ }
+    }
+    updateCounts();
+    setInterval(updateCounts,3000);
+
+    // Idempotency Key
+    function makeIdemKey(){
+      const bytes=new Uint8Array(16);
+      (window.crypto||window.msCrypto).getRandomValues(bytes);
+      return Array.from(bytes).map(b=>b.toString(16).padStart(2,'0')).join('');
+    }
+
+    // Modal elements
+    const modal=document.getElementById('reserve-modal');
+    const mTable=document.getElementById('rm-table');
+    const mLogin=document.getElementById('rm-login');
+    const mName=document.getElementById('rm-name');
+    const mSeats=document.getElementById('rm-seats');
+    const mErr=document.getElementById('rm-error');
+    const btnCancel=document.getElementById('rm-cancel');
+    const btnConfirm=document.getElementById('rm-confirm');
+    let currentTableId=null;
+
+    function openModal(tableId){
+      currentTableId=tableId;
+      mTable.textContent=tableId;
+      mLogin.value=localStorage.getItem('loginId')||'';
+      mName.value=localStorage.getItem('empName')||'';
+      mSeats.value=localStorage.getItem('seatsPref')||'1';
+      mErr.textContent='';
+      modal.classList.add('show');
+    }
+    function closeModal(){ modal.classList.remove('show'); currentTableId=null; }
+    btnCancel.addEventListener('click',closeModal);
+    modal.addEventListener('click',(e)=>{ if(e.target===modal) closeModal(); });
+
+    // Click table -> open modal (if seats left)
+    wrap.addEventListener('click',(e)=>{
+      const card=e.target.closest('.table-card');
+      if(!card || card.classList.contains('status-disabled')) return;
+      const tableId=Number(card.dataset.tableId);
+      openModal(tableId);
+    });
+
+    // Confirm reservation
+    btnConfirm.addEventListener('click', async ()=>{
+      const login=(mLogin.value||'').trim();
+      const name=(mName.value||'').trim();
+      const seats=Number(mSeats.value||1);
+      if(!login){ mErr.textContent='Login ID is required.'; return; }
+      if(!name){ mErr.textContent='Employee Name is required.'; return; }
+      if(seats<1 || seats>3){ mErr.textContent='Seats must be 1–3.'; return; }
+
+      localStorage.setItem('loginId',login);
+      localStorage.setItem('empName',name);
+      localStorage.setItem('seatsPref',String(seats));
+
+      btnConfirm.disabled=true;
+      mErr.textContent='';
+
+      try{
+        const r=await fetch('/api/reserve',{
+          method:'POST',
+          headers:{
+            'Content-Type':'application/json',
+            'Idempotency-Key': makeIdemKey()
+          },
+          body: JSON.stringify({
+            table_id: currentTableId,
+            seats: seats,
+            seats_to_take: seats,
+            employee_name: name,
+            login_id: login
+          })
+        });
+
+        let data=null, text='';
+        try{ data=await r.json(); }catch{ try{ text=await r.text(); }catch{} }
+
+        if(!r.ok){
+          mErr.textContent=(data && (data.message||data.error||data.detail)) || text || `Error ${r.status}`;
+          return;
+        }
+
+        const tableIdJustBooked=currentTableId;
+
+        closeModal();
+        await updateCounts();
+
+        const bookedTable=(data && (data.table_id ?? tableIdJustBooked)) || tableIdJustBooked;
+        showMessage(`Reservation successful! ${login} reserved Table ${bookedTable} for ${seats} seat(s).`,'success');
+
+      }catch(err){
+        console.error(err);
+        mErr.textContent='Network error. Please try again.';
+      }finally{
+        btnConfirm.disabled=false;
+      }
+    });
+  </script>
+</body>
+</html>
