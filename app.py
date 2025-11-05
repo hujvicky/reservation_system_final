@@ -260,7 +260,7 @@ def list_reservations():
 
     try:
         # 獲取所有預約
-        all_reservations = s3_store.get_all_ reservations()
+        all_reservations = s3_store.get_all_reservations()
         print(f"[DEBUG] Found {len(all_reservations)} reservations in S3")
 
         # 過濾條件
