@@ -49,7 +49,7 @@ def require_admin_token(f):
 
         try:
             token = token.replace('Bearer ', '')
-            payload = jwt.decode(token, JWT_SECRET, algorithms=['HS26'])
+            payload = jwt.decode(token, JWT_SECRET, algorithms=['HS256'])
             if payload.get('username') != ADMIN_USERNAME:
                 return jsonify({'success': False, 'message': 'Invalid token'}), 401
         except jwt.ExpiredSignatureError:
@@ -170,7 +170,7 @@ def admin_login():
 def admin_verify():
     return jsonify({'success': True, 'message': 'Token valid'})
 
-# ---------- API：座位狀態 (!!! 已修改 !!!) ----------
+# ---------- API：座位狀態 (已修改版) ----------
 @app.get("/api/status")
 def api_status():
     tables_data = s3_store.get_tables_data()
@@ -260,7 +260,7 @@ def list_reservations():
 
     try:
         # 獲取所有預約
-        all_reservations = s3_store.get_all_reservations()
+        all_reservations = s3_store.get_all_ reservations()
         print(f"[DEBUG] Found {len(all_reservations)} reservations in S3")
 
         # 過濾條件
@@ -418,6 +418,62 @@ def reduce_seats():
             return jsonify(success=True, message=f"Reduced {reduce_by} seat(s).")
 
     return jsonify(success=False, message="Failed to reduce seats"), 500
+
+# ---------- (NEW) API：資料重新同步 ----------
+@app.post("/api/admin/resync")
+@require_admin_token # 確保只有 Admin 能執行
+def admin_resync():
+    """
+    重新計算所有桌子的 seats_left。
+    以 'reservations/' 資料夾為準，去更新 'tables.json'。
+    """
+    try:
+        print("[INFO] Starting table data resynchronization...")
+        
+        # 1. 取得目前桌位資料 (我們需要 'total' 總容量)
+        tables_data = s3_store.get_tables_data()
+        if not tables_data:
+            return jsonify(success=False, message="No tables data found to resync."), 500
+
+        # 2. 取得「所有」訂單 (這是我們唯一的「事實來源」)
+        all_reservations = s3_store.get_all_reservations()
+
+        # 3. 重新計算每張桌子「實際」被佔用的座位數
+        actual_seats_taken = {} # 格式: { "table_id_str": count, ... }
+        for r in all_reservations:
+            table_id_str = str(r.get("table_id"))
+            seats = r.get("seats_taken", 1) # 取得佔用座位，預設 1
+            
+            if table_id_str not in actual_seats_taken:
+                actual_seats_taken[table_id_str] = 0
+            actual_seats_taken[table_id_str] += seats
+
+        # 4. 迴圈檢查 'tables.json' 並修正 'seats_left'
+        updated_count = 0
+        for table_id_str, table in tables_data.items():
+            total_seats = table.get("total", 10) # 取得總座位數
+            taken_seats = actual_seats_taken.get(table_id_str, 0) # 取得實際佔用數
+            
+            new_seats_left = total_seats - taken_seats
+            
+            # 如果 S3 上的 'seats_left' 不等於我們剛算出的新數字，就更新它
+            if table["seats_left"] != new_seats_left:
+                print(f"[RESYNC] Table {table_id_str}: Seats left was {table['seats_left']}, correcting to {new_seats_left}")
+                table["seats_left"] = new_seats_left
+                updated_count += 1
+            
+        # 5. 將修正後的 'tables_data' 完整存回 S3
+        if s3_store.save_tables_data(tables_data):
+            print(f"[INFO] Resync complete. {updated_count} table(s) were corrected.")
+            return jsonify(success=True, message=f"Resync complete. {updated_count} table(s) corrected.")
+        else:
+            print("[ERROR] Resync failed: Could not save updated tables data.")
+            return jsonify(success=False, message="Failed to save corrected data."), 500
+
+    except Exception as e:
+        print(f"[ERROR] Resync failed: {e}")
+        return jsonify(success=False, message=str(e)), 500
+
 
 # ---------- 匯出 CSV ----------
 @app.get("/api/reservations.csv")
