@@ -282,7 +282,7 @@
 
       // 產生 tooltip 內容
       if (!reservations || reservations.length === 0) {
-        tooltip.innerHTML = `<b>Table ${tableId} (${groupInfo.displayName})</b><br>No reservations.`;
+        tooltip.innerHTML = `<b>Table ${tableId} (${groupInfo.displayName})</b><br>No reservations`;
       } else {
         // (正確的) 格式化字串，加上座位數
         const formattedNames = reservations.map(res => {
