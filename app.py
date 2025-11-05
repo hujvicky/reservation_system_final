@@ -170,19 +170,44 @@ def admin_login():
 def admin_verify():
     return jsonify({'success': True, 'message': 'Token valid'})
 
-# ---------- API：座位狀態 ----------
+# ---------- API：座位狀態 (!!! 已修改 !!!) ----------
 @app.get("/api/status")
 def api_status():
     tables_data = s3_store.get_tables_data()
     if not tables_data:
         return jsonify({"tables": []})
 
+    # === (NEW) START: 查詢所有訂位並建立查詢表 ===
+    
+    # 1. 取得所有訂位紀錄
+    all_reservations = s3_store.get_all_reservations()
+    
+    # 2. 建立一個 map (table_id_str -> [name1, name2, ...])
+    reservations_map = {}
+    for r in all_reservations:
+        # 使用 str() 確保 key 的型別一致 (S3 table key 是 string)
+        table_id_str = str(r.get("table_id"))
+        name = r.get("employee_name", "Unknown") # 取得 'employee_name'
+        
+        if table_id_str not in reservations_map:
+            reservations_map[table_id_str] = []
+        reservations_map[table_id_str].append(name)
+        
+    # === (NEW) END ===
+
     tables_list = []
-    for table_id in sorted(tables_data.keys(), key=int):
-        table = tables_data[table_id]
+    # tables_data.keys() 的 key 已經是 string (來自 init_tables)
+    for table_id_str in sorted(tables_data.keys(), key=int):
+        table = tables_data[table_id_str]
+        
+        # (NEW) 從 map 中取得這張桌子的訂位名單，如果沒有就給空陣列
+        names_list = reservations_map.get(table_id_str, []) 
+        
+        # (MODIFIED) 將 'reservations' 欄位加入回傳
         tables_list.append({
             "table_id": table["id"],
-            "seats_left": table["seats_left"]
+            "seats_left": table["seats_left"],
+            "reservations": names_list  # <--- 這就是前端需要的新欄位
         })
 
     return jsonify({"tables": tables_list})
@@ -291,7 +316,7 @@ def reserve():
         existing_idem = s3_store.get_idempotency_key(idem_key)
         if existing_idem:
             return jsonify(success=True, message="Already processed",
-                         reservation_id=existing_idem.get("reservation_id")), 200
+                           reservation_id=existing_idem.get("reservation_id")), 200
 
         # 檢查 login_id 是否已存在
         if s3_store.check_login_id_exists(login_id):
@@ -319,7 +344,7 @@ def reserve():
             s3_store.save_idempotency_key(idem_key, {"reservation_id": reservation_id})
             print(f"[INFO] Reservation created successfully: {reservation_id}")
             return jsonify(success=True, message="Reservation confirmed!",
-                         reservation_id=reservation_id, table_id=table_id), 201
+                           reservation_id=reservation_id, table_id=table_id), 201
         else:
             # 如果儲存失敗，回復座位
             s3_store.release_seats(table_id, seats)
