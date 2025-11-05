@@ -52,27 +52,26 @@
 
     .status-disabled{opacity:.55;cursor:not-allowed;pointer-events:none}
     
-    /* === (NEW) Tooltip 樣式 === */
+    /* Tooltip 樣式 */
     #table-tooltip {
-      position: fixed; /* 跟隨頁面，而非地圖 */
+      position: fixed;
       display: none;
       padding: 8px 12px;
-      background: rgba(30, 41, 59, 0.95); /* 深藍灰背景 */
+      background: rgba(30, 41, 59, 0.95);
       color: white;
       border-radius: 8px;
       font-size: 13px;
       line-height: 1.5;
       font-weight: 500;
       z-index: 2000;
-      pointer-events: none; /* 讓滑鼠可以穿透 tooltip，不會干擾 hover */
+      pointer-events: none;
       box-shadow: 0 5px 15px rgba(0,0,0,.2);
       max-width: 280px;
     }
     #table-tooltip b {
-      color: #fef08a; /* 標題用黃色 */
+      color: #fef08a;
       font-weight: 700;
     }
-    /* === (NEW) End Tooltip 樣式 === */
 
     /* Modal */
     .modal-backdrop{position:fixed;inset:0;background:rgba(0,0,0,.45);display:none;align-items:center;justify-content:center;z-index:1000}
@@ -96,7 +95,19 @@
 </head>
 <body class="bg-gray-100 min-h-screen py-8">
   <div class="w-full flex flex-col items-center">
+    
+    <div class="full-width-fix grid grid-cols-3 items-center gap-3 py-3 px-4 shadow-sm mb-4">
+      <a href="/reports.html"
+         class="justify-self-start text-[26px] text-indigo-600 hover:text-indigo-800 font-semibold underline transition-transform hover:scale-105">
+        View All Reservations
+      </a>
+      <div></div>
+    </div>
+
+    <p id="msg" class="text-sm text-gray-600 mb-3" aria-live="polite"></p>
+
     <div class="mx-auto" style="width:max-content;">
+
       <div class="w-full flex justify-center mb-6">
         <div class="w-[900px] py-4 rounded-2xl border-4 border-red-500 bg-white font-extrabold text-red-500 text-4xl tracking-[0.25em] text-center shadow-[inset_0_0_0_6px_rgba(239,68,68,0.15)]">
           S T A G E
@@ -113,7 +124,27 @@
   </div>
 
   <div id="reserve-modal" class="modal-backdrop" role="dialog" aria-modal="true" aria-labelledby="reserve-title">
+    <div class="modal-card">
+      <h3 id="reserve-title">Reserve Table <span id="rm-table" style="font-variant-numeric: tabular-nums;"></span></h3>
+      <div class="modal-row">
+        <label for="rm-login">Login ID</label>
+        <input id="rm-login" type="text" placeholder="panosp" />
+      </div>
+      <div class="modal-row">
+        <label for="rm-name">Employee Name</label>
+        <input id="rm-name" type="text" placeholder="Panos Panay" />
+      </div>
+      <div class="modal-row">
+        <label for="rm-seats">Seats</label>
+        <select id="rm-seats"><option value="1" selected>1</option><option value="2">2</option><option value="3">3</option></select>
+      </div>
+      <div id="rm-error" class="text-red-700 text-xs min-h-4"></div>
+      <div class="modal-actions">
+        <button type="button" class="btn secondary" id="rm-cancel">Cancel</button>
+        <button type="button" class="btn primary" id="rm-confirm">Confirm</button>
+      </div>
     </div>
+  </div>
 
   <div id="table-tooltip" role="tooltip"></div>
 
@@ -121,8 +152,8 @@
   <script>
     const TOTAL=108, PER_ROW=12;
 
-    // === (NEW) 全域變數，用來儲存訂位名單 ===
-    // 格式會是: { 1: ["Panos", "Satya"], 2: [], ... }
+    // 全域變數，用來儲存訂位名單
+    // 格式會是: { 1: [ {name:"Panos", seats:2}, {name:"Satya", seats:1} ], 2: [], ... }
     let reservationDetails = {};
 
     // === 桌位群組定義 (跟之前一樣) ===
@@ -165,7 +196,9 @@
 
 
     function showMessage(t,type='info'){
-      // ... (內容不變)
+      const el=document.getElementById('msg');
+      el.textContent=t||'';
+      el.className='text-sm mb-3 '+(type==='success'?'text-green-700':type==='error'?'text-red-700':'text-gray-600');
     }
 
     // Build seating grid (內容不變)
@@ -190,17 +223,16 @@
       if(cnt===12) cnt=0;
     }
 
-    // === (MODIFIED) 修改 updateCounts 來儲存訂位名單 ===
+    // === (MODIFIED) 修改 updateCounts 來儲存訂位名單 (物件陣列) ===
     async function updateCounts(){
       try{
         const r=await fetch('/api/status');
         if(!r.ok) return;
         const { tables } = await r.json();
 
-        const newDetails = {}; // 建立一個新的暫存 map
+        const newDetails = {};
 
         tables.forEach(t=>{
-          // 更新座位數 (舊邏輯)
           const card=document.querySelector(`.table-card[data-table-id="${t.table_id}"]`);
           const span=document.querySelector(`.count[data-left="${t.table_id}"]`);
           if(card && span){
@@ -208,12 +240,10 @@
             card.classList.toggle('status-disabled', t.seats_left <= 0);
           }
           
-          // (NEW) 儲存訂位名單
-          // 假設 API 回傳 t.reservations = ["Name 1", "Name 2"]
+          // (MODIFIED) 儲存訂位名單 (現在 t.reservations 是 [ {name:..., seats:...} ])
           newDetails[t.table_id] = t.reservations || [];
         });
 
-        // (NEW) 用新的資料覆蓋全域變數
         reservationDetails = newDetails;
 
       }catch(e){ /* ignore */ }
@@ -222,23 +252,18 @@
     setInterval(updateCounts,3000);
 
 
-    // === (NEW) Tooltip 事件監聽 ===
+    // === (MODIFIED) Tooltip 事件監聽 (處理座位數) ===
     const tooltip = document.getElementById('table-tooltip');
 
-    // 輔助函式：更新 tooltip 位置 (避免超出螢幕)
     function updateTooltipPosition(e) {
-      let x = e.pageX + 15; // 游標右側 15px
-      let y = e.pageY + 15; // 游標下方 15px
-
-      // 檢查是否超出視窗右邊界
+      let x = e.pageX + 15;
+      let y = e.pageY + 15;
       if (x + tooltip.offsetWidth + 20 > window.innerWidth) {
-        x = e.pageX - tooltip.offsetWidth - 15; // 翻轉到游標左側
+        x = e.pageX - tooltip.offsetWidth - 15;
       }
-      // 檢查是否超出視窗下邊界
       if (y + tooltip.offsetHeight + 20 > window.innerHeight) {
-        y = e.pageY - tooltip.offsetHeight - 15; // 翻轉到游標上側
+        y = e.pageY - tooltip.offsetHeight - 15;
       }
-
       tooltip.style.left = `${x}px`;
       tooltip.style.top = `${y}px`;
     }
@@ -247,28 +272,36 @@
     wrap.addEventListener('mouseover', (e) => {
       const card = e.target.closest('.table-card');
       if (!card) {
-        tooltip.style.display = 'none'; // 如果不是移到桌子上，隱藏
+        tooltip.style.display = 'none';
         return;
       }
       
       const tableId = card.dataset.tableId;
-      const names = reservationDetails[tableId]; // 從全域變數中取得名單
+      // (MODIFIED) 'names' -> 'reservations' (因為現在不只是名字)
+      const reservations = reservationDetails[tableId]; 
       const groupInfo = tableIdToGroupMap[tableId] || defaultGroupInfo;
 
       // 產生 tooltip 內容
-      if (!names || names.length === 0) {
+      if (!reservations || reservations.length === 0) {
         tooltip.innerHTML = `<b>Table ${tableId} (${groupInfo.displayName})</b><br>Available. No reservations.`;
       } else {
-        tooltip.innerHTML = `<b>Table ${tableId} (${groupInfo.displayName})</b><br>${names.join('<br>')}`;
+        // (MODIFIED) 格式化字串，加上座位數
+        const formattedNames = reservations.map(res => {
+          // 如果座位數 > 1，就在名字後面加上 (N)
+          // (res.seats || 1) 是為了處理舊資料或 API 沒傳 seats 欄位的狀況
+          const seatCountDisplay = (res.seats && res.seats > 1) ? ` (${res.seats})` : '';
+          return `${res.name}${seatCountDisplay}`;
+        });
+        
+        tooltip.innerHTML = `<b>Table ${tableId} (${groupInfo.displayName})</b><br>${formattedNames.join('<br>')}`;
       }
       
-      tooltip.style.display = 'block'; // 顯示 tooltip
-      updateTooltipPosition(e); // 設定初始位置
+      tooltip.style.display = 'block';
+      updateTooltipPosition(e);
     });
 
     // 2. 滑鼠在桌子上移動
     wrap.addEventListener('mousemove', (e) => {
-      // 只有在 tooltip 可見時才更新位置
       if (tooltip.style.display === 'block') {
         updateTooltipPosition(e);
       }
@@ -276,22 +309,105 @@
 
     // 3. 滑鼠移出座位圖區域
     wrap.addEventListener('mouseleave', () => {
-      tooltip.style.display = 'none'; // 隱藏 tooltip
+      tooltip.style.display = 'none';
     });
-    // === (NEW) End Tooltip 事件 ===
+    // === (END) Tooltip 事件 ===
 
 
     // Idempotency Key (內容不變)
     function makeIdemKey(){
-      // ...
+      const bytes=new Uint8Array(16);
+      (window.crypto||window.msCrypto).getRandomValues(bytes);
+      return Array.from(bytes).map(b=>b.toString(16).padStart(2,'0')).join('');
     }
 
     // Modal elements (內容不變)
     const modal=document.getElementById('reserve-modal');
-    // ...
+    const mTable=document.getElementById('rm-table');
+    const mLogin=document.getElementById('rm-login');
+    const mName=document.getElementById('rm-name');
+    const mSeats=document.getElementById('rm-seats');
+    const mErr=document.getElementById('rm-error');
+    const btnCancel=document.getElementById('rm-cancel');
+    const btnConfirm=document.getElementById('rm-confirm');
+    let currentTableId=null;
 
-    // (Modal 相關的 function 和 click 事件，全部不變)
-    // ...
+    function openModal(tableId){
+      currentTableId=tableId;
+      mTable.textContent=tableId;
+      mLogin.value=localStorage.getItem('loginId')||'';
+      mName.value=localStorage.getItem('empName')||'';
+      mSeats.value=localStorage.getItem('seatsPref')||'1';
+      mErr.textContent='';
+      modal.classList.add('show');
+    }
+    function closeModal(){ modal.classList.remove('show'); currentTableId=null; }
+    btnCancel.addEventListener('click',closeModal);
+    modal.addEventListener('click',(e)=>{ if(e.target===modal) closeModal(); });
+
+    // Click table -> open modal (內容不變)
+    wrap.addEventListener('click',(e)=>{
+      const card=e.target.closest('.table-card');
+      if(!card || card.classList.contains('status-disabled')) return;
+      const tableId=Number(card.dataset.tableId);
+      openModal(tableId);
+    });
+
+    // Confirm reservation (內容不變)
+    btnConfirm.addEventListener('click', async ()=>{
+      const login=(mLogin.value||'').trim();
+      const name=(mName.value||'').trim();
+      const seats=Number(mSeats.value||1);
+      if(!login){ mErr.textContent='Login ID is required.'; return; }
+      if(!name){ mErr.textContent='Employee Name is required.'; return; }
+      if(seats<1 || seats>3){ mErr.textContent='Seats must be 1–3.'; return; }
+
+      localStorage.setItem('loginId',login);
+      localStorage.setItem('empName',name);
+      localStorage.setItem('seatsPref',String(seats));
+
+      btnConfirm.disabled=true;
+      mErr.textContent='';
+
+      try{
+        const r=await fetch('/api/reserve',{
+          method:'POST',
+          headers:{
+            'Content-Type':'application/json',
+            'Idempotency-Key': makeIdemKey()
+          },
+          body: JSON.stringify({
+            table_id: currentTableId,
+            seats: seats,
+            seats_to_take: seats,
+            employee_name: name,
+            login_id: login
+          })
+        });
+
+        let data=null, text='';
+        try{ data=await r.json(); }catch{ try{ text=await r.text(); }catch{} }
+
+        if(!r.ok){
+          mErr.textContent=(data && (data.message||data.error||data.detail)) || text || `Error ${r.status}`;
+          return;
+        }
+
+        const tableIdJustBooked=currentTableId;
+
+        closeModal();
+        await updateCounts(); // 這會觸發新的 API 呼叫，tooltip 資料會立即更新
+
+        const bookedTable=(data && (data.table_id ?? tableIdJustBooked)) || tableIdJustBooked;
+        showMessage(`Reservation successful! ${login} reserved Table ${bookedTable} for ${seats} seat(s).`,'success');
+
+      }catch(err){
+        console.error(err);
+        mErr.textContent='Network error. Please try again.';
+      }finally{
+        btnConfirm.disabled=false;
+      }
+    });
   </script>
 </body>
 </html>
