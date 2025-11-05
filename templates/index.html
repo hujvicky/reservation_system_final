@@ -29,26 +29,27 @@
     .aisle{grid-column:7;width:100%;height:100%;min-height:130px;border-left:3px dashed #bbb;border-right:3px dashed #bbb;position:relative}
     .aisle::before{content:'AISLE';position:absolute;top:50%;left:50%;transform:translate(-50%,-50%) rotate(-90deg);font-size:12px;color:#999;letter-spacing:2px}
     
-    /* === (1) START: 部門顏色 === */
-    /* 舊的 row-red, row-yellow, row-blue 已移除 */
-    .dept-eero { background:#d8b4fe; border-color:#9333ea; } /* Purple */
-    .dept-ops { background:#bbf7d0; border-color:#22c55e; } /* Green */
-    .dept-hw { background:#bae6fd; border-color:#0ea5e9; }  /* Sky Blue */
-    .dept-lab { background:#99f6e4; border-color:#14b8a6; }  /* Teal */
-    .dept-sw { background:#fef08a; border-color:#ca8a04; }  /* Yellow */
-    .dept-ai { background:#fecaca; border-color:#ef4444; }  /* Red */
-    .dept-others { background:#e5e7eb; border-color:#6b7280; } /* Gray */
+    /* === (1) START: 8個群組顏色 === */
+    .group-vip   { background:#fecaca; border-color:#ef4444; } /* 1. VIP (紅) */
+    .group-eero  { background:#bbf7d0; border-color:#22c55e; } /* 2. eero (綠) */
+    .group-ops   { background:#bae6fd; border-color:#0ea5e9; } /* 3. Operation (藍) */
+    .group-hw    { background:#d8b4fe; border-color:#9333ea; } /* 4. Hardware (紫) */
+    .group-sw    { background:#fef08a; border-color:#ca8a04; } /* 5. Software (黃) */
+    .group-ai    { background:#fed7aa; border-color:#f97316; } /* 6. AI Team (橘) */
+    .group-lab   { background:#fbcfe8; border-color:#ec4899; } /* 7. Lab (粉紅) */
+    .group-others{ background:#e5e7eb; border-color:#6b7280; } /* 8. Others (灰) */
 
-    /* 部門名稱樣式 */
+    /* 部門/群組名稱樣式 */
     .dept-name {
       display: block;
       font-size: 13px;
       font-weight: 800;
+      /* text-transform: uppercase; (已移除) */
       line-height: 1.2;
       margin-bottom: 4px;
       color: #1f2937; /* 深灰色字 */
     }
-    /* === (1) END: 部門顏色 === */
+    /* === (1) END: 群組顏色 === */
 
     .status-disabled{opacity:.55;cursor:not-allowed;pointer-events:none}
     /* Modal */
@@ -65,8 +66,6 @@
     .btn.primary{background:#4f46e5;color:#fff}
     .btn.primary[disabled]{opacity:.6;cursor:not-allowed}
     .count{display:block;font-weight:600;font-size:12px;color:#374151}
-
-    /* 讓舞台列與頁面等寬（你目前沒有 sticky，就保留 full-width 視覺） */
     .full-width-fix{
       width:100%;
       background-color:rgba(243,244,f6,.95);
@@ -80,14 +79,11 @@
          class="justify-self-start text-[26px] text-indigo-600 hover:text-indigo-800 font-semibold underline transition-transform hover:scale-105">
         View All Reservations
       </a>
-    
-
       <div></div>
     </div>
 
     <p id="msg" class="text-sm text-gray-600 mb-3" aria-live="polite"></p>
 
-    
     <div class="mx-auto" style="width:max-content;">
 
       <div class="w-full flex justify-center mb-6">
@@ -133,26 +129,67 @@
   <script>
     const TOTAL=108, PER_ROW=12;
 
-    // === (2) START: 部門資料定義 ===
-    const departments = [
-      { name: 'eero', count: 14, cssClass: 'dept-eero' },
-      { name: 'Operations', count: 25, cssClass: 'dept-ops' },
-      { name: 'Hardware', count: 20, cssClass: 'dept-hw' },
-      { name: 'Lab', count: 5, cssClass: 'dept-lab' },
-      { name: 'Software', count: 25, cssClass: 'dept-sw' },
-      { name: 'AI', count: 14, cssClass: 'dept-ai' },
-      { name: 'Others', count: 5, cssClass: 'dept-others' }
-    ];
+    // === (2) START: 桌位群組定義 ===
+    
+    // 1. 定義你的群組 (名稱、CSS class)
+    const groupConfig = {
+      'VIP':    { displayName: 'VIP',       cssClass: 'group-vip' },
+      'EERO':   { displayName: 'eero',      cssClass: 'group-eero' },
+      'OPS':    { displayName: 'Operation', cssClass: 'group-ops' },
+      'HW':     { displayName: 'Hardware',  cssClass: 'group-hw' },
+      'SW':     { displayName: 'Software',  cssClass: 'group-sw' },
+      'AI':     { displayName: 'AI Team',   cssClass: 'group-ai' },
+      'LAB':    { displayName: 'Lab',       cssClass: 'group-lab' },
+      'OTHERS': { displayName: 'Others',    cssClass: 'group-others' }
+    };
 
-    // 建立一個查詢表 (table ID -> department info)
-    // 總和 14+25+20+5+25+14+5 = 108
-    const tableDeptMap = [];
-    departments.forEach(dept => {
-      for (let i = 0; i < dept.count; i++) {
-        tableDeptMap.push({ name: dept.name, cssClass: dept.cssClass });
+    // 2. 指定桌號屬於哪個群組 (Key 是 groupConfig 裡的 ID)
+    const tableGroupConfig = {
+      // --- 你指定的桌號 ---
+      'VIP':  [6, 7],
+      'EERO': [40, 41, 42, 43, 44, 52],
+      'OPS':  [
+        61, 62, 63, 64, 65, 66, // 61-66
+        73, 74, 75, 76, 77, 78, // 73-78
+        85, 86, 87, 88, 89, 90, // 85-90
+        100, 101, 102          // 100-102
+      ],
+      'HW':   [
+        8, 9, 10, 11, 12,       // 8-12
+        19, 20, 21, 22, 23, 24, // 19-24
+        31, 32, 33, 34, 35, 36  // 31-36
+      ],
+
+      // --- 我幫你隨機配的 (所有剩下的桌號) ---
+      // (15 tables)
+      'SW':   [1, 2, 3, 4, 5, 13, 14, 15, 16, 17, 18, 25, 26, 27, 28],
+      // (15 tables)
+      'AI':   [29, 30, 37, 38, 39, 45, 46, 47, 48, 49, 50, 51, 53, 54, 55],
+      // (15 tables)
+      'LAB':  [56, 57, 58, 59, 60, 67, 68, 69, 70, 71, 72, 79, 80, 81, 82],
+      // (16 tables)
+      'OTHERS': [
+        83, 84, 91, 92, 93, 94, 95, 96, 97, 98, 99, 
+        103, 104, 105, 106, 107, 108
+      ]
+    };
+
+    // 3. 建立一個反向查詢表 (Table ID -> Group Info)
+    const tableIdToGroupMap = {};
+    const defaultGroupInfo = groupConfig['OTHERS']; // 預設群組
+    
+    // 遍歷設定檔，建立查詢表
+    for (const groupKey in tableGroupConfig) {
+      if (groupConfig[groupKey]) {
+        const groupInfo = groupConfig[groupKey];
+        const tableIds = tableGroupConfig[groupKey];
+        
+        tableIds.forEach(tableId => {
+          tableIdToGroupMap[tableId] = groupInfo;
+        });
       }
-    });
-    // === (2) END: 部門資料定義 ===
+    }
+    // === (2) END: 桌位群組定義 ===
 
 
     function showMessage(t,type='info'){
@@ -166,34 +203,24 @@
     let cnt=0;
     for(let i=1;i<=TOTAL;i++){
       // === (3) START: 修改迴圈 ===
-      // 根據桌號 i (i從1開始) 查詢部門資訊 (map陣列從0開始)
-      const deptInfo = tableDeptMap[i - 1];
+      // 根據桌號 i，查詢它屬於哪個群組
+      // 如果在 map 中找不到，就使用 groupConfig 裡的 'OTHERS' (在 JSDATA 2.C 裡已設定)
+      const groupInfo = tableIdToGroupMap[i] || defaultGroupInfo; 
 
       const d=document.createElement('div');
-      d.className='table-card'; // 基本 class
+      d.className='table-card';
       d.dataset.tableId=i;
       
-      // 加上部門的 CSS 顏色 class
-      if (deptInfo) {
-        d.classList.add(deptInfo.cssClass);
-      } else {
-        d.classList.add('dept-others'); // 預防萬一
-      }
+      // 加上群組的 CSS 顏色 class
+      d.classList.add(groupInfo.cssClass);
 
-      // 插入包含部門名稱的 HTML
+      // 插入包含群組名稱的 HTML
       d.innerHTML=`<div>
-          <span class="dept-name">${deptInfo ? deptInfo.name : 'N/A'}</span>
+          <span class="dept-name">${groupInfo.displayName}</span>
           Table ${i}
           <span class="count" data-left="${i}">(10 left)</span>
         </div>`;
       
-      // 移除舊的 row-based 顏色邏輯
-      /*
-      const row=Math.ceil(i/PER_ROW);
-      if(row<=3) d.classList.add('row-red');
-      else if(row<=6) d.classList.add('row-yellow');
-      else d.classList.add('row-blue');
-      */
       // === (3) END: 修改迴圈 ===
 
       wrap.appendChild(d);
@@ -302,7 +329,6 @@
           return;
         }
 
-        // 成功：先記桌號，避免被 closeModal() 清空
         const tableIdJustBooked=currentTableId;
 
         closeModal();
