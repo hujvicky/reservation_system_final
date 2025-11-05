@@ -313,7 +313,7 @@
 
 
     // Idempotency Key
-    function makeIdemKey(){
+    function makeIdempotKey(){
       const bytes=new Uint8Array(16);
       (window.crypto||window.msCrypto).getRandomValues(bytes);
       return Array.from(bytes).map(b=>b.toString(16).padStart(2,'0')).join('');
