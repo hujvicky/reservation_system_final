@@ -1,5 +1,6 @@
 # ======================================
 # s3_store.py - 最終修正版
+# FORCED REDEPLOY OF S3_STORE (v5)
 # ======================================
 import boto3
 import json
