@@ -1,6 +1,5 @@
 # ======================================
-# s3_store.py - 最終修正版
-# FORCED REDEPLOY OF S3_STORE (v5)
+# s3_store.py - V8 DEPLOYMENT
 # ======================================
 import boto3
 import json
@@ -18,6 +17,7 @@ TAIWAN_TZ = timezone(timedelta(hours=8))
 
 class S3Store:
     def __init__(self):
+        self.VERSION = "3.0-fix-delete-bug" # <-- 版本號
         self.bucket_name = os.environ.get('S3_BUCKET_NAME', 'seat-reservation-data-2025')
         self.s3_client = boto3.client('s3')
         self.s3_resource = boto3.resource('s3')
@@ -299,3 +299,12 @@ class S3Store:
         """獲取防重複鍵"""
         try:
             response = self.s3_client.get_object(
+                Bucket=self.bucket_name,
+                Key=f"idempotency/{key}.json"
+            )
+            return json.loads(response['Body'].read().decode('utf-8'))
+        except ClientError as e:
+            if e.response['Error']['Code'] == 'NoSuchKey':
+                return None
+            logger.error(f"獲取防重複鍵失敗: {e}")
+            return None
