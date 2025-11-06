@@ -1,6 +1,5 @@
 # ======================================
-# app.py - 最終修正版
-# FORCING DEPLOYMENT V5 - THIS IS THE CORRECT ONE
+# app.py - V8 DEPLOYMENT
 # ======================================
 
 from flask import Flask, request, jsonify, send_file, render_template
@@ -16,6 +15,8 @@ import logging
 # (NEW) 設定日誌
 logging.basicConfig(level=logging.INFO)
 logger = logging.getLogger(__name__)
+
+APP_VERSION = "3.0-fix-delete-bug" # <-- 版本號
 
 # ---------- 台灣時區設定 ----------
 TAIWAN_TZ = timezone(timedelta(hours=8))
@@ -126,6 +127,15 @@ try:
     init_tables()
 except Exception as e:
     print(f"[WARN] init_tables skipped: {e}")
+
+# ---------- (NEW) 版本檢查 API ----------
+@app.route("/api/version")
+def get_version():
+    """檢查後端版本，用於除錯"""
+    return jsonify(
+        app_version=APP_VERSION, 
+        s3_store_version=getattr(s3_store, 'VERSION', 'unknown')
+    )
 
 # ---------- 頁面路由 ----------
 @app.route("/")
@@ -390,4 +400,216 @@ def reserve():
             s3_store.release_seats(table_id, seats)
             return jsonify(success=False, message="Failed to save reservation"), 500
 
-    except Exception
+    except Exception as e:
+        print(f"[ERROR] Reservation failed: {e}")
+        return jsonify(success=False, message=f"Reservation failed: {str(e)}"), 500
+
+# ---------- API：取消預約 (!!! 修正 3 !!!) ----------
+@app.post("/api/cancel")
+@require_admin_token
+def cancel():
+    payload = request.get_json(force=True)
+    reservation_id = payload.get("reservation_id")
+
+    if not reservation_id:
+        return jsonify(success=False, message="reservation_id required"), 400
+
+    # (MODIFIED) 
+    # 1. 尋找訂單和它的日期
+    reservation, date_str = _find_reservation_and_date(reservation_id)
+    
+    if not reservation:
+        return jsonify(success=False, message="Reservation not found"), 404
+
+    # 2. 呼叫 delete_reservation 並傳入日期
+    # (注意: s3_store.py 的 'slot_id' 參數其實就是 reservation_id)
+    if s3_store.delete_reservation(reservation_id, date_str):
+        # 3. 成功刪除後，釋放座位
+        s3_store.release_seats(reservation["table_id"], reservation["seats_taken"])
+        return jsonify(success=True)
+    else:
+        return jsonify(success=False, message="Failed to cancel reservation"), 500
+
+# ---------- (REMOVED) API：減少座位 ----------
+# ... (此函式已被移除) ...
+
+# ---------- (!!! 修正 4 !!!) API：更新訂位資訊 ----------
+@app.post("/api/admin/update_reservation")
+@require_admin_token
+def update_reservation_details():
+    payload = request.get_json(force=True)
+    reservation_id = payload.get("reservation_id")
+    new_login_id = payload.get("login_id")
+    new_name = payload.get("employee_name")
+    
+    try:
+        # (NEW) 取得新的座位數
+        new_seats = int(payload.get("seats_taken"))
+    except (ValueError, TypeError):
+        return jsonify(success=False, message="Invalid seats_taken value"), 400
+
+    if not reservation_id or not new_login_id or not new_name:
+        return jsonify(success=False, message="Missing required fields"), 400
+    
+    if new_seats < 1 or new_seats > MAX_PER_BOOKING:
+        return jsonify(success=False, message=f"Seats must be between 1 and {MAX_PER_BOOKING}"), 400
+
+    # 格式化
+    new_login_id = new_login_id.strip().lower()
+    new_name = new_name.strip()
+    
+    if not new_login_id or not new_name:
+        return jsonify(success=False, message="Fields cannot be empty"), 400
+
+    seat_diff = 0 # 初始化座位差異
+    table_id = None
+
+    try:
+        # 1. 取得現有訂位和日期
+        reservation, date_str = _find_reservation_and_date(reservation_id)
+        if not reservation:
+            return jsonify(success=False, message="Reservation not found"), 404
+
+        current_login_id = reservation.get("login_id")
+        current_seats = reservation.get("seats_taken")
+        table_id = reservation.get("table_id") # 取得桌號以供復原
+
+        # 2. (NEW) 處理座位數變更
+        seat_diff = new_seats - current_seats
+        
+        if seat_diff > 0:
+            # 嘗試增加座位
+            if not s3_store.reserve_seats(table_id, seat_diff):
+                return jsonify(success=False, message=f"Not enough seats available on Table {table_id} to add {seat_diff} seat(s)."), 409
+        elif seat_diff < 0:
+            # 減少座位
+            s3_store.release_seats(table_id, abs(seat_diff))
+
+        # 3. 檢查 Login ID 是否被變更
+        if current_login_id != new_login_id:
+            # 4. 如果變更了，檢查新的 Login ID 是否已被他人使用
+            if s3_store.check_login_id_exists(new_login_id):
+                # (NEW) 復原座位變更！
+                if seat_diff > 0:
+                    s3_store.release_seats(table_id, seat_diff) # 歸還剛才預訂的座位
+                elif seat_diff < 0:
+                    s3_store.reserve_seats(table_id, abs(seat_diff)) # 拿回剛才釋放的座位
+                return jsonify(success=False, message=f"The new login_id '{new_login_id}' is already taken."), 409
+        
+        # 5. 更新訂位物件
+        reservation["login_id"] = new_login_id
+        reservation["employee_name"] = new_name
+        reservation["seats_taken"] = new_seats
+        reservation["updated_at"] = datetime.now(TAIWAN_TZ).isoformat()
+
+        # 6. 儲存回 S3
+        if s3_store.update_reservation(reservation_id, reservation, date_str):
+            return jsonify(success=True, message="Reservation updated.")
+        else:
+            # (NEW) 復原座位變更！
+            if seat_diff > 0:
+                s3_store.release_seats(table_id, seat_diff)
+            elif seat_diff < 0:
+                s3_store.reserve_seats(table_id, abs(seat_diff))
+            return jsonify(success=False, message="Failed to save update to S3."), 500
+
+    except Exception as e:
+        logger.error(f"[ERROR] Update reservation failed: {e}")
+        # (NEW) 處理未知的錯誤，並嘗試復原 (更安全的 rollback)
+        if seat_diff > 0 and table_id:
+            s3_store.release_seats(table_id, seat_diff)
+        elif seat_diff < 0 and table_id:
+             s3_store.reserve_seats(table_id, abs(seat_diff))
+        return jsonify(success=False, message=str(e)), 500
+
+# ---------- API：資料重新同步 ----------
+@app.post("/api/admin/resync")
+@require_admin_token # 確保只有 Admin 能執行
+def admin_resync():
+    """
+    重新計算所有桌子的 seats_left。
+    以 'reservations/' 資料夾為準，去更新 'tables.json'。
+    """
+    try:
+        print("[INFO] Starting table data resynchronization...")
+        
+        # 1. 取得目前桌位資料 (我們需要 'total' 總容量)
+        tables_data = s3_store.get_tables_data()
+        if not tables_data:
+            return jsonify(success=False, message="No tables data found to resync."), 500
+
+        # 2. 取得「所有」訂單 (這是我們唯一的「事實來源」)
+        all_reservations = s3_store.get_all_reservations()
+
+        # 3. 重新計算每張桌子「實際」被佔用的座位數
+        actual_seats_taken = {} # 格式: { "table_id_str": count, ... }
+        for r in all_reservations:
+            table_id_str = str(r.get("table_id"))
+            seats = r.get("seats_taken", 1) # 取得佔用座位，預設 1
+            
+            if table_id_str not in actual_seats_taken:
+                actual_seats_taken[table_id_str] = 0
+            actual_seats_taken[table_id_str] += seats
+
+        # 4. 迴圈檢查 'tables.json' 並修正 'seats_left'
+        updated_count = 0
+        for table_id_str, table in tables_data.items():
+            total_seats = table.get("total", 10) # 取得總座位數
+            taken_seats = actual_seats_taken.get(table_id_str, 0) # 取得實際佔用數
+            
+            new_seats_left = total_seats - taken_seats
+            
+            # 如果 S3 上的 'seats_left' 不等於我們剛算出的新數字，就更新它
+            if table["seats_left"] != new_seats_left:
+                print(f"[RESYNC] Table {table_id_str}: Seats left was {table['seats_left']}, correcting to {new_seats_left}")
+                table["seats_left"] = new_seats_left
+                updated_count += 1
+            
+        # 5. 將修正後的 'tables_data' 完整存回 S3
+        if s3_store.save_tables_data(tables_data):
+            print(f"[INFO] Resync complete. {updated_count} table(s) were corrected.")
+            return jsonify(success=True, message=f"Resync complete. {updated_count} table(s) corrected.")
+        else:
+            print("[ERROR] Resync failed: Could not save updated tables data.")
+            return jsonify(success=False, message="Failed to save corrected data."), 500
+
+    except Exception as e:
+        print(f"[ERROR] Resync failed: {e}")
+        return jsonify(success=False, message=str(e)), 500
+
+
+# ---------- 匯出 CSV ----------
+@app.get("/api/reservations.csv")
+@require_admin_token
+def export_csv():
+    out = io.StringIO()
+    writer = csv.writer(out)
+    writer.writerow(["id", "table_id", "seats_taken", "employee_name", "login_id", "created_at"])
+
+    reservations = s3_store.get_all_reservations()
+    reservations.sort(key=lambda x: x.get("created_at", ""), reverse=True)
+
+    for r in reservations:
+        writer.writerow([
+            r.get("id", ""),
+            r.get("table_id", ""),
+            r.get("seats_taken", ""),
+            r.get("employee_name", ""),
+            r.get("login_id", ""),
+            r.get("created_at", "")
+        ])
+
+    mem = io.BytesIO(out.getvalue().encode("utf-8"))
+    mem.seek(0)
+    return send_file(mem, mimetype="text/csv", as_attachment=True, download_name="reservations.csv")
+
+# ---------- 啟動 ----------
+if __name__ == "__main__":
+    try:
+        init_tables()
+    except Exception as e:
+        print(f"[WARN] init_tables skipped: {e}")
+
+    print(f"[INFO] Admin authentication: {'ENABLED' if ENABLE_ADMIN_AUTH else 'DISABLED'}")
+    port = int(os.getenv("PORT", 8000))
+    app.run(host="0.0.0.0", port=port, debug=False)
