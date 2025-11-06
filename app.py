@@ -1,6 +1,6 @@
 # ======================================
 # Reservation System - AWS App Runner + S3 版
-# FORCED REDEPLOY - 2025-11-06 v3
+# 完整功能：CRUD + 防重投 + login_id 唯一(不分大小寫) + S3 儲存 + Admin 登入
 # ======================================
 
 from flask import Flask, request, jsonify, send_file, render_template
@@ -379,6 +379,7 @@ def reserve():
 
         # 儲存預約和防重複鍵
         # (MODIFIED) 傳入 reservation_id 和 date_str=None (讓 s3_store 用今天日期)
+        # 這裡的 date_str=None 很重要，這樣 s3_store.py 才會自動抓今天日期
         if s3_store.save_reservation(reservation_id, reservation_data, date_str=None):
             s3_store.save_idempotency_key(idem_key, {"reservation_id": reservation_id})
             print(f"[INFO] Reservation created successfully: {reservation_id}")
@@ -504,9 +505,11 @@ def update_reservation_details():
 
     except Exception as e:
         logger.error(f"[ERROR] Update reservation failed: {e}")
-        # (NEW) 處理未知的錯誤，並嘗試復原
+        # (NEW) 處理未知的錯誤，並嘗試復原 (更安全的 rollback)
         if seat_diff > 0 and table_id:
             s3_store.release_seats(table_id, seat_diff)
+        elif seat_diff < 0 and table_id:
+             s3_store.reserve_seats(table_id, abs(seat_diff))
         return jsonify(success=False, message=str(e)), 500
 
 # ---------- API：資料重新同步 ----------
