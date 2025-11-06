@@ -25,14 +25,19 @@ class S3Store:
             date_str = datetime.now(TAIWAN_TZ).strftime('%Y-%m-%d')
         return f"reservations/{date_str}/{slot_id}.json"
 
-    def save_reservation(self, slot_id, reservation_data):
+    # (!!! MODIFIED !!!)
+    # 1. 儲存預訂 (新增 date_str 參數)
+    def save_reservation(self, slot_id, reservation_data, date_str=None):
         """儲存預訂資料到 S3"""
         try:
             # 確保資料包含時間戳記
             reservation_data['created_at'] = reservation_data.get('created_at', datetime.now(TAIWAN_TZ).isoformat())
             reservation_data['updated_at'] = datetime.now(TAIWAN_TZ).isoformat()
 
-            key = self._get_reservation_key(slot_id)
+            # (MODIFIED) 使用傳入的 date_str (如果有的話)
+            # 這對「建立新訂單」沒有影響 (date_str=None, 會用今天)
+            # 但對「更新舊訂單」至關重要
+            key = self._get_reservation_key(slot_id, date_str)
 
             # 將資料轉換為 JSON 並上傳到 S3
             self.s3_client.put_object(
@@ -118,6 +123,8 @@ class S3Store:
             logger.error(f"列出預訂資料失敗: {e}")
             return []
 
+    # (!!! MODIFIED !!!)
+    # 2. 更新預訂 (將 date_str 傳遞給 save_reservation)
     def update_reservation(self, slot_id, updated_data, date_str=None):
         """更新預訂資料"""
         try:
@@ -131,8 +138,8 @@ class S3Store:
             existing_data.update(updated_data)
             existing_data['updated_at'] = datetime.now(TAIWAN_TZ).isoformat()
 
-            # 儲存更新後的資料
-            return self.save_reservation(slot_id, existing_data)
+            # (MODIFIED) 儲存更新後的資料 (傳入 date_str)
+            return self.save_reservation(slot_id, existing_data, date_str)
 
         except Exception as e:
             logger.error(f"更新預訂資料失敗: {e}")
@@ -229,12 +236,6 @@ class S3Store:
             logger.error(f"檢查 login_id 失敗: {e}")
             return False
 
-    # s3_store (1).py (片段)
-
-    # s3_store (1).py
-
-    # ... 其他程式碼 ...
-
     def get_all_reservations(self):
         """獲取所有預訂資料 (已修正分頁問題)"""
         reservations = []
@@ -259,11 +260,6 @@ class S3Store:
                                     Key=obj['Key']
                                 )
                                 reservation_data = json.loads(obj_response['Body'].read().decode('utf-8'))
-                                # S3 中的檔案 Key 包含日期資訊，但 Reservation Model 中沒有，
-                                # 我們可以將 S3 Key 中的 UUID 作為最終的 Reservation ID。
-                                # 但由於您在 save_reservation 時已經將 UUID 存入 reservation_data['id']，
-                                # 此處無需修改。
-
                                 reservations.append(reservation_data)
                             except Exception as e:
                                 logger.warning(f"無法讀取預約檔案 {obj['Key']}: {e}")
@@ -271,13 +267,9 @@ class S3Store:
             return reservations
 
         except ClientError as e:
-            # 由於 test-s3 成功，ClientError 可能是 ListBucket 權限問題。
-            # 雖然您說 test-s3 成功，但 ListBucket 權限是獨立於 Get/Put 的，
-            # 如果這個函式失敗，仍需要檢查 ListBucket 權限。
             logger.error(f"獲取所有預約失敗: {e}")
             return []
 
-    # ... 其他程式碼 ...
     def save_idempotency_key(self, key, data):
         """儲存防重複鍵"""
         try:
