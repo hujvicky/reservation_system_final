@@ -1,5 +1,5 @@
 # ======================================
-# FORCED REDEPLOY OF S3_STORE (v2)
+# s3_store.py - 最終修正版
 # ======================================
 import boto3
 import json
@@ -298,12 +298,3 @@ class S3Store:
         """獲取防重複鍵"""
         try:
             response = self.s3_client.get_object(
-                Bucket=self.bucket_name,
-                Key=f"idempotency/{key}.json"
-            )
-            return json.loads(response['Body'].read().decode('utf-8'))
-        except ClientError as e:
-            if e.response['Error']['Code'] == 'NoSuchKey':
-                return None
-            logger.error(f"獲取防重複鍵失敗: {e}")
-            return None
