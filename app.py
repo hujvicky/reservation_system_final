@@ -1,5 +1,5 @@
 # ======================================
-# app.py - V8 DEPLOYMENT
+# app.py - 最終修正版 v9
 # ======================================
 
 from flask import Flask, request, jsonify, send_file, render_template
