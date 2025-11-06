@@ -325,7 +325,7 @@ def list_reservations():
             "error": str(e)
         })
 
-# ---------- API：建立預約 ----------
+# ---------- API：建立預約 (!!! 已修改 !!!) ----------
 @app.post("/api/reserve")
 def reserve():
     payload = request.get_json(force=True)
@@ -378,8 +378,8 @@ def reserve():
         print(f"[DEBUG] Creating reservation: {reservation_data}")
 
         # 儲存預約和防重複鍵
-        # (MODIFIED) 傳入 reservation_id (s3_store 稱之為 slot_id)
-        if s3_store.save_reservation(reservation_id, reservation_data):
+        # (MODIFIED) 傳入 reservation_id 和 date_str=None (讓 s3_store 用今天日期)
+        if s3_store.save_reservation(reservation_id, reservation_data, date_str=None):
             s3_store.save_idempotency_key(idem_key, {"reservation_id": reservation_id})
             print(f"[INFO] Reservation created successfully: {reservation_id}")
             return jsonify(success=True, message="Reservation confirmed!",
@@ -419,12 +419,10 @@ def cancel():
     else:
         return jsonify(success=False, message="Failed to cancel reservation"), 500
 
-# ---------- (!!! REMOVED !!!) API：減少座位 ----------
-# def reduce_seats():
-#     ... (此函式已被移除，功能合併到 update_reservation_details) ...
+# ---------- (REMOVED) API：減少座位 ----------
+# ... (此函式已被移除) ...
 
-
-# ---------- (!!! NEW / UPGRADED !!!) API：更新訂位資訊 ----------
+# ---------- (UPGRADED) API：更新訂位資訊 ----------
 @app.post("/api/admin/update_reservation")
 @require_admin_token
 def update_reservation_details():
