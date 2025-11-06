@@ -122,7 +122,7 @@
         });
         const data = await res.json();
         if (res.ok && data.success) {
-          alert('Resync Complete: ' + data.message);
+          alert('Resync Complete: 'D ' + data.message);
           load(); // 重新載入資料
         } else {
           alert('Resync Failed: ' + data.message);
