@@ -11,6 +11,11 @@ import os, io, csv, uuid, jwt
 from datetime import datetime, timezone, timedelta
 from functools import wraps
 import json
+import logging # (NEW) 建議加入 logging
+
+# (NEW) 設定日誌
+logging.basicConfig(level=logging.INFO)
+logger = logging.getLogger(__name__)
 
 # ---------- 台灣時區設定 ----------
 TAIWAN_TZ = timezone(timedelta(hours=8))
@@ -59,6 +64,35 @@ def require_admin_token(f):
 
         return f(*args, **kwargs)
     return decorated
+
+# ---------- (NEW) 輔助函式：根據 ID 查找訂單並取得日期 ----------
+def _find_reservation_and_date(reservation_id):
+    """
+    (修復 Bug 用)
+    因為 s3_store 是用日期分資料夾，我們必須先找到訂單的日期。
+    這很沒效率，但 s3_store.py 就是這樣設計的。
+    """
+    if not reservation_id:
+        return None, None
+        
+    all_reservations = s3_store.get_all_reservations()
+    reservation = next((r for r in all_reservations if r.get('id') == reservation_id), None)
+    
+    if not reservation:
+        return None, None
+
+    try:
+        created_at_iso = reservation.get("created_at")
+        # 從 ISO 格式字串解析出 datetime 物件
+        created_dt = datetime.fromisoformat(created_at_iso)
+        # 格式化成 s3_store.py 需要的 'YYYY-MM-DD'
+        date_str = created_dt.strftime('%Y-%m-%d')
+        return reservation, date_str
+    except Exception as e:
+        logger.error(f"Could not parse date from reservation {reservation_id}: {e}")
+        # 降級：嘗試用今天的日期 (可能會失敗)
+        date_str = datetime.now(TAIWAN_TZ).strftime('%Y-%m-%d')
+        return reservation, date_str
 
 # ---------- 初始化桌位資料 ----------
 def init_tables():
@@ -345,6 +379,7 @@ def reserve():
         print(f"[DEBUG] Creating reservation: {reservation_data}")
 
         # 儲存預約和防重複鍵
+        # (MODIFIED) 傳入 reservation_id (s3_store 稱之為 slot_id)
         if s3_store.save_reservation(reservation_id, reservation_data):
             s3_store.save_idempotency_key(idem_key, {"reservation_id": reservation_id})
             print(f"[INFO] Reservation created successfully: {reservation_id}")
@@ -359,7 +394,7 @@ def reserve():
         print(f"[ERROR] Reservation failed: {e}")
         return jsonify(success=False, message=f"Reservation failed: {str(e)}"), 500
 
-# ---------- API：取消預約 ----------
+# ---------- API：取消預約 (!!! 已修改 !!!) ----------
 @app.post("/api/cancel")
 @require_admin_token
 def cancel():
@@ -369,18 +404,23 @@ def cancel():
     if not reservation_id:
         return jsonify(success=False, message="reservation_id required"), 400
 
-    reservation = s3_store.get_reservation(reservation_id)
+    # (MODIFIED) 
+    # 1. 尋找訂單和它的日期
+    reservation, date_str = _find_reservation_and_date(reservation_id)
+    
     if not reservation:
         return jsonify(success=False, message="Reservation not found"), 404
 
-    # 刪除預約並回復座位
-    if s3_store.delete_reservation(reservation_id):
+    # 2. 呼叫 delete_reservation 並傳入日期
+    # (注意: s3_store.py 的 'slot_id' 參數其實就是 reservation_id)
+    if s3_store.delete_reservation(reservation_id, date_str):
+        # 3. 成功刪除後，釋放座位
         s3_store.release_seats(reservation["table_id"], reservation["seats_taken"])
         return jsonify(success=True)
     else:
         return jsonify(success=False, message="Failed to cancel reservation"), 500
 
-# ---------- API：減少座位 ----------
+# ---------- API：減少座位 (!!! 已修改 !!!) ----------
 @app.post("/api/reduce")
 @require_admin_token
 def reduce_seats():
@@ -396,7 +436,10 @@ def reduce_seats():
     if not reservation_id or reduce_by <= 0:
         return jsonify(success=False, message="Invalid input"), 400
 
-    reservation = s3_store.get_reservation(reservation_id)
+    # (MODIFIED) 
+    # 1. 尋找訂單和它的日期
+    reservation, date_str = _find_reservation_and_date(reservation_id)
+    
     if not reservation:
         return jsonify(success=False, message="Reservation not found"), 404
 
@@ -404,7 +447,8 @@ def reduce_seats():
 
     if reduce_by >= current_seats:
         # 完全取消預約
-        if s3_store.delete_reservation(reservation_id):
+        # 2. 呼叫 delete_reservation 並傳入日期
+        if s3_store.delete_reservation(reservation_id, date_str):
             s3_store.release_seats(reservation["table_id"], current_seats)
             return jsonify(success=True, message=f"Reservation cancelled, returned {current_seats} seat(s).")
     else:
@@ -413,13 +457,67 @@ def reduce_seats():
         updated_reservation["seats_taken"] = current_seats - reduce_by
         updated_reservation["updated_at"] = datetime.now(TAIWAN_TZ).isoformat()
 
-        if s3_store.update_reservation(reservation_id, updated_reservation):
+        # 3. 呼叫 update_reservation 並傳入日期
+        if s3_store.update_reservation(reservation_id, updated_reservation, date_str):
             s3_store.release_seats(reservation["table_id"], reduce_by)
             return jsonify(success=True, message=f"Reduced {reduce_by} seat(s).")
 
     return jsonify(success=False, message="Failed to reduce seats"), 500
 
-# ---------- (NEW) API：資料重新同步 ----------
+
+# ---------- API：更新訂位資訊 (!!! 已修改 !!!) ----------
+@app.post("/api/admin/update_reservation")
+@require_admin_token
+def update_reservation_details():
+    payload = request.get_json(force=True)
+    reservation_id = payload.get("reservation_id")
+    new_login_id = payload.get("login_id")
+    new_name = payload.get("employee_name")
+
+    if not reservation_id or not new_login_id or not new_name:
+        return jsonify(success=False, message="Missing required fields"), 400
+
+    # 格式化
+    new_login_id = new_login_id.strip().lower()
+    new_name = new_name.strip()
+    
+    if not new_login_id or not new_name:
+        return jsonify(success=False, message="Fields cannot be empty"), 400
+
+    try:
+        # (MODIFIED) 
+        # 1. 尋找訂單和它的日期
+        reservation, date_str = _find_reservation_and_date(reservation_id)
+        
+        if not reservation:
+            return jsonify(success=False, message="Reservation not found"), 404
+
+        current_login_id = reservation.get("login_id")
+
+        # 2. 檢查 Login ID 是否被變更
+        if current_login_id != new_login_id:
+            # 3. 如果變更了，檢查新的 Login ID 是否已被他人使用
+            if s3_store.check_login_id_exists(new_login_id):
+                return jsonify(success=False, message=f"The new login_id '{new_login_id}' is already taken."), 409
+        
+        # 4. 更新訂位物件
+        reservation["login_id"] = new_login_id
+        reservation["employee_name"] = new_name
+        reservation["updated_at"] = datetime.now(TAIWAN_TZ).isoformat()
+
+        # 5. 儲存回 S3 (並傳入日期)
+        if s3_store.update_reservation(reservation_id, reservation, date_str):
+            # 備註: 這裡的 'check_login_id_exists' 是掃描所有檔案，
+            # 所以不需要手動更新 login_id 索引，這樣是 OK 的。
+            return jsonify(success=True, message="Reservation updated.")
+        else:
+            return jsonify(success=False, message="Failed to save update to S3."), 500
+
+    except Exception as e:
+        print(f"[ERROR] Update reservation failed: {e}")
+        return jsonify(success=False, message=str(e)), 500
+
+# ---------- API：資料重新同步 ----------
 @app.post("/api/admin/resync")
 @require_admin_token # 確保只有 Admin 能執行
 def admin_resync():
