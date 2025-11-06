@@ -25,8 +25,8 @@ class S3Store:
             date_str = datetime.now(TAIWAN_TZ).strftime('%Y-%m-%d')
         return f"reservations/{date_str}/{slot_id}.json"
 
-    # (!!! MODIFIED !!!)
-    # 1. 儲存預訂 (新增 date_str 參數)
+    # (!!! 修正 1 !!!)
+    # save_reservation 必須接受 date_str 參數
     def save_reservation(self, slot_id, reservation_data, date_str=None):
         """儲存預訂資料到 S3"""
         try:
@@ -35,8 +35,6 @@ class S3Store:
             reservation_data['updated_at'] = datetime.now(TAIWAN_TZ).isoformat()
 
             # (MODIFIED) 使用傳入的 date_str (如果有的話)
-            # 這對「建立新訂單」沒有影響 (date_str=None, 會用今天)
-            # 但對「更新舊訂單」至關重要
             key = self._get_reservation_key(slot_id, date_str)
 
             # 將資料轉換為 JSON 並上傳到 S3
@@ -123,8 +121,8 @@ class S3Store:
             logger.error(f"列出預訂資料失敗: {e}")
             return []
 
-    # (!!! MODIFIED !!!)
-    # 2. 更新預訂 (將 date_str 傳遞給 save_reservation)
+    # (!!! 修正 2 !!!)
+    # update_reservation 必須將 date_str 傳遞給 save_reservation
     def update_reservation(self, slot_id, updated_data, date_str=None):
         """更新預訂資料"""
         try:
@@ -210,7 +208,7 @@ class S3Store:
             return False
 
     def release_seats(self, table_id, seats_count):
-        """釋放座位"""
+        """釋放座位 (!!! 已升級 !!!)"""
         try:
             tables_data = self.get_tables_data()
             if not tables_data:
@@ -220,7 +218,16 @@ class S3Store:
             if table_key not in tables_data:
                 return False
 
-            tables_data[table_key]["seats_left"] += seats_count
+            # (NEW) 增加保護，避免座位數超過總數
+            total_seats = tables_data[table_key].get("total", 10)
+            new_seats_left = tables_data[table_key]["seats_left"] + seats_count
+            
+            if new_seats_left > total_seats:
+                logger.warning(f"座位數修正：Table {table_id} 釋放 {seats_count} 後座位數 ({new_seats_left}) 超過總數 {total_seats}。將設定為 {total_seats}。")
+                tables_data[table_key]["seats_left"] = total_seats
+            else:
+                tables_data[table_key]["seats_left"] = new_seats_left
+                
             return self.save_tables_data(tables_data)
 
         except Exception as e:
