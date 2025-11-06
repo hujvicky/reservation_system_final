@@ -32,11 +32,11 @@
             <tr>
               <th class="p-2 border font-semibold">ID</th>
               <th class="p-2 border font-semibold">Table ID</th>
-              <th class="p-2 border font-semibold">Login ID</th>
-              <th class="p-2 border font-semibold">Employee Name</th>
-              <th class="p-2 border font-semibold">Seats Reserved</th>
+              <th class="p-2 border font-semibold" style="min-width: 150px;">Login ID</th>
+              <th class="p-2 border font-semibold" style="min-width: 150px;">Employee Name</th>
+              <th class="p-2 border font-semibold" style="min-width: 100px;">Seats Reserved</th>
               <th class="p-2 border font-semibold">Timestamp (Taiwan Time)</th>
-              <th class="p-2 border font-semibold">Action</th>
+              <th class="p-2 border font-semibold" style="min-width: 180px;">Action</th>
             </tr>
           </thead>
           <tbody id="rows"></tbody>
@@ -66,7 +66,7 @@
       }
     }
 
-    // === (NEW) 檢查 Token 並取得 Headers ===
+    // === 檢查 Token 並取得 Headers ===
     const adminToken = localStorage.getItem('adminToken');
 
     if (!adminToken) {
@@ -74,7 +74,7 @@
       window.location.href = '/login.html';
     }
 
-    // (NEW) Helper function to get auth headers
+    // Helper function to get auth headers
     function getAuthHeaders(isPost = true) {
       const headers = {
         'Authorization': `Bearer ${adminToken}`
@@ -85,7 +85,7 @@
       return headers;
     }
 
-    // (NEW) 幫 CSV 匯出按鈕加上 Token
+    // 幫 CSV 匯出按鈕加上 Token
     const exportBtn = document.getElementById('export-csv');
     exportBtn.addEventListener('click', (e) => {
       e.preventDefault(); // 阻止預設的點擊
@@ -108,7 +108,7 @@
         .catch(err => alert('Error downloading report: ' + err.message));
     });
 
-    // (NEW) 幫 Resync 按鈕綁定事件
+    // 幫 Resync 按鈕綁定事件
     document.getElementById('resync-button').addEventListener('click', async () => {
       if (!confirm('This will recalculate all table counts based on existing reservations. Continue?')) return;
       
@@ -129,21 +129,20 @@
       }
     });
 
-    // === (MODIFIED) 載入資料 ===
+    // === 載入資料 ===
     async function load(){
       let data = [];
       const rowsEl = document.getElementById('rows');
       const titleEl = document.getElementById('title');
 
       try {
-        // 1. 執行 API 請求 (MODIFIED: 加上 headers)
+        // 1. 執行 API 請求 (加上 headers)
         const r = await fetch('/api/reservations?page=1&page_size=500', {
           headers: getAuthHeaders(false) // 使用 GET headers
         });
 
         // 2. 檢查 HTTP 狀態碼 (HTTP status code)
         if (!r.ok) {
-          // (NEW) 檢查 401 錯誤
           if (r.status === 401 || r.status === 403) {
             throw new Error(`Authentication Failed (HTTP ${r.status}). Token might be expired. Redirecting to login...`);
           }
@@ -168,27 +167,37 @@
           return;
         }
 
+        // (MODIFIED) 產生包含 input 的表格 row
         const rows = data.map((d, idx) => {
           const ts = formatTaiwanTime(d.created_at);
-
-          const canReduceMax = Math.max(0, Number(d.seats_taken) - 1);
-          const reduceSelect = canReduceMax > 0
-            ? `<select class="border rounded px-2 py-1" data-reduce-select="${d.id}">
-                ${Array.from({length: canReduceMax}, (_,i)=>`<option value="${i+1}">${i+1}</option>`).join('')}
-              </select>
-              <button class="ml-2 px-3 py-1 rounded bg-gray-200 hover:bg-gray-300" data-reduce="${d.id}" data-max="${canReduceMax}">Reduce</button>`
-            : `<span class="text-gray-400">—</span>`;
+          
+          // (NEW) 產生座位下拉選單
+          const seats = d.seats_taken || 1;
+          const seatSelect = `
+            <select class="border px-2 py-1 w-full rounded" data-input-seats="${d.id}">
+              <option value="1" ${seats == 1 ? 'selected' : ''}>1</option>
+              <option value="2" ${seats == 2 ? 'selected' : ''}>2</option>
+              <option value="3" ${seats == 3 ? 'selected' : ''}>3</option>
+            </select>`;
 
           return `<tr class="hover:bg-gray-50">
             <td class="p-2 border font-mono text-xs text-gray-700">${d.id ? d.id.slice(0,8) : idx + 1}</td>
             <td class="p-2 border text-gray-800">${fmtTableId(d.table_id)}</td>
-            <td class="p-2 border">${d.login_id||''}</td>
-            <td class="p-2 border">${d.employee_name||''}</td>
-            <td class="p-2 border">${d.seats_taken}</td>
+            
+            <td class="p-2 border">
+              <input type="text" value="${d.login_id||''}" class="border px-2 py-1 w-full rounded" data-input-login="${d.id}">
+            </td>
+            <td class="p-2 border">
+              <input type="text" value="${d.employee_name||''}" class="border px-2 py-1 w-full rounded" data-input-name="${d.id}">
+            </td>
+            <td class="p-2 border">
+              ${seatSelect}
+            </td>
+            
             <td class="p-2 border text-gray-600">${ts}</td>
             <td class="p-2 border">
-              <div class="flex items-center gap-2">
-                ${reduceSelect}
+              <div class="flex items-center gap-2 flex-wrap">
+                <button class="px-3 py-1 rounded bg-blue-500 text-white hover:bg-blue-600" data-update="${d.id}">Update</button>
                 <button class="px-3 py-1 rounded bg-red-500 text-white hover:bg-red-600" data-cancel="${d.id}">Cancel</button>
               </div>
             </td>
@@ -197,21 +206,87 @@
         rowsEl.innerHTML = rows;
 
         // 5. 綁定事件監聽器
+        
+        // (MODIFIED) Update Button Listener
+        document.querySelectorAll('[data-update]').forEach(btn => {
+          btn.addEventListener('click', async () => {
+            const id = btn.getAttribute('data-update');
+            
+            const loginInput = document.querySelector(`[data-input-login="${id}"]`);
+            const nameInput = document.querySelector(`[data-input-name="${id}"]`);
+            const seatsInput = document.querySelector(`[data-input-seats="${id}"]`); // (NEW)
+            
+            const newLogin = loginInput.value.trim();
+            const newName = nameInput.value.trim();
+            const newSeats = Number(seatsInput.value); // (NEW)
+            
+            if (!newLogin || !newName) {
+              alert('Login ID and Employee Name cannot be empty.');
+              return;
+            }
+
+            if (!confirm(`Are you sure you want to update this reservation?\n\nLogin ID: ${newLogin}\nName: ${newName}\nSeats: ${newSeats}`)) {
+              return;
+            }
+            
+            try {
+              const res = await fetch('/api/admin/update_reservation', {
+                method: 'POST',
+                headers: getAuthHeaders(true),
+                body: JSON.stringify({ // (MODIFIED) 傳送所有資料
+                  reservation_id: id,
+                  login_id: newLogin,
+                  employee_name: newName,
+                  seats_taken: newSeats
+                })
+              });
+              
+              const data = await res.json();
+              
+              if (res.ok && data.success) {
+                alert('Reservation updated successfully!');
+                loginInput.style.backgroundColor = '#d1fae5'; // 成功後變綠色
+                nameInput.style.backgroundColor = '#d1fae5';
+                seatsInput.style.backgroundColor = '#d1fae5';
+                setTimeout(() => { // 1秒後移除綠色
+                   loginInput.style.backgroundColor = '';
+                   nameInput.style.backgroundColor = '';
+                   seatsInput.style.backgroundColor = '';
+                }, 1500);
+                // 成功後重新載入，以確保 seats_left 總數正確
+                load();
+              } else {
+                alert(`Update Failed: ${data.message || 'Unknown error'}`);
+                loginInput.style.backgroundColor = '#fee2e2'; // 失敗後變紅色
+                nameInput.style.backgroundColor = '#fee2e2';
+                seatsInput.style.backgroundColor = '#fee2e2';
+                setTimeout(() => { // 1秒後移除紅色
+                   loginInput.style.backgroundColor = '';
+                   nameInput.style.backgroundColor = '';
+                   seatsInput.style.backgroundColor = '';
+                }, 1500);
+              }
+            } catch (err) {
+              alert('An error occurred: ' + err.message);
+            }
+          });
+        });
+
+        // Cancel Button Listener (已修正)
         document.querySelectorAll('[data-cancel]').forEach(btn=>{
           btn.addEventListener('click', async ()=>{
             const id = btn.getAttribute('data-cancel');
             if(!confirm('Cancel this reservation entirely?')) return;
             
-            // (MODIFIED) 加上 headers 並改善錯誤處理
             try {
               const response = await fetch('/api/cancel', {
                 method:'POST', 
-                headers: getAuthHeaders(true), // (MODIFIED)
+                headers: getAuthHeaders(true),
                 body: JSON.stringify({reservation_id:id})
               });
               
               if (response.ok) { 
-                load(); 
+                load(); // 取消成功後，重新載入
               } else { 
                 const errData = await response.json();
                 alert(`Failed to cancel: ${errData.message || 'Unknown error'}`); 
@@ -222,37 +297,17 @@
           });
         });
         
-        document.querySelectorAll('[data-reduce]').forEach(btn=>{
-          btn.addEventListener('click', async ()=>{
-            const id = btn.getAttribute('data-reduce');
-            const sel = document.querySelector(`[data-reduce-select="${id}"]`);
-            const n = Number(sel && sel.value);
-            if(!n || n < 1){ alert('Select a number to reduce.'); return; }
-            
-            // (MODIFIED) 加上 headers
-            const res = await fetch('/api/reduce', {
-              method:'POST', 
-              headers: getAuthHeaders(true), // (MODIFIED)
-              body: JSON.stringify({reservation_id:id, reduce_by:n})
-            });
-            const responseData = await res.json();
-            if(res.ok && responseData.success){ 
-              load(); 
-            } else { 
-              alert(responseData.message || 'Failed to reduce seats.'); 
-            }
-          });
-        });
+        // (REMOVED) Reduce Button Listener
+        // ... (已刪除) ...
 
       } catch (error) {
         // 6. 處理錯誤
         console.error('Reservation Data Load Error:', error);
         titleEl.textContent = `Reservation Records (Load Failed)`;
         
-        // (NEW) 檢查 401/403 錯誤
         let errorMsg = error.message;
         if (error.message.includes('Authentication Failed')) {
-          errorMsg = error.message; // 使用我們自訂的錯誤
+          errorMsg = error.message;
           setTimeout(() => window.location.href = '/login.html', 3000);
         }
         
