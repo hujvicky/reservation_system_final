@@ -12,9 +12,16 @@
       <h1 class="text-2xl font-bold">Admin Panel</h1>
       <div class="flex gap-3">
         <a href="/index.html" class="px-3 py-2 rounded bg-gray-200 hover:bg-gray-300">Go to Seating Map</a>
-        <a href="/api/reservations.csv" class="px-3 py-2 rounded bg-indigo-600 text-white hover:bg-indigo-700">Export Report (CSV)</a>
+        <a href="/api/reservations.csv" class="px-3 py-2 rounded bg-indigo-600 text-white hover:bg-indigo-700" id="export-csv">Export Report (CSV)</a>
         <a href="/login.html" class="px-3 py-2 rounded bg-red-500 text-white hover:bg-red-600">Logout</a>
       </div>
+    </div>
+
+    <div class="mb-4">
+      <button id="resync-button" class="px-4 py-2 rounded bg-yellow-500 text-white font-semibold hover:bg-yellow-600">
+        Resync Seat Counts
+      </button>
+      <span class="ml-2 text-sm text-gray-600">If (0 left) counts seem wrong, click this to fix.</span>
     </div>
 
     <div class="bg-white rounded-xl shadow p-4">
@@ -59,17 +66,87 @@
       }
     }
 
+    // === (NEW) 檢查 Token 並取得 Headers ===
+    const adminToken = localStorage.getItem('adminToken');
+
+    if (!adminToken) {
+      alert('You are not logged in. Redirecting to login page.');
+      window.location.href = '/login.html';
+    }
+
+    // (NEW) Helper function to get auth headers
+    function getAuthHeaders(isPost = true) {
+      const headers = {
+        'Authorization': `Bearer ${adminToken}`
+      };
+      if (isPost) {
+        headers['Content-Type'] = 'application/json';
+      }
+      return headers;
+    }
+
+    // (NEW) 幫 CSV 匯出按鈕加上 Token
+    const exportBtn = document.getElementById('export-csv');
+    exportBtn.addEventListener('click', (e) => {
+      e.preventDefault(); // 阻止預設的點擊
+      fetch('/api/reservations.csv', { headers: getAuthHeaders(false) })
+        .then(res => {
+          if (!res.ok) throw new Error('Failed to download CSV');
+          return res.blob();
+        })
+        .then(blob => {
+          const url = window.URL.createObjectURL(blob);
+          const a = document.createElement('a');
+          a.style.display = 'none';
+          a.href = url;
+          a.download = 'reservations.csv';
+          document.body.appendChild(a);
+          a.click();
+          window.URL.revokeObjectURL(url);
+          a.remove();
+        })
+        .catch(err => alert('Error downloading report: ' + err.message));
+    });
+
+    // (NEW) 幫 Resync 按鈕綁定事件
+    document.getElementById('resync-button').addEventListener('click', async () => {
+      if (!confirm('This will recalculate all table counts based on existing reservations. Continue?')) return;
+      
+      try {
+        const res = await fetch('/api/admin/resync', {
+          method: 'POST',
+          headers: getAuthHeaders(true) // 使用 POST headers
+        });
+        const data = await res.json();
+        if (res.ok && data.success) {
+          alert('Resync Complete: ' + data.message);
+          load(); // 重新載入資料
+        } else {
+          alert('Resync Failed: ' + data.message);
+        }
+      } catch (err) {
+        alert('Resync Failed: ' + err.message);
+      }
+    });
+
+    // === (MODIFIED) 載入資料 ===
     async function load(){
       let data = [];
       const rowsEl = document.getElementById('rows');
       const titleEl = document.getElementById('title');
 
       try {
-        // 1. 執行 API 請求
-        const r = await fetch('/api/reservations?page=1&page_size=500');
+        // 1. 執行 API 請求 (MODIFIED: 加上 headers)
+        const r = await fetch('/api/reservations?page=1&page_size=500', {
+          headers: getAuthHeaders(false) // 使用 GET headers
+        });
 
-        // 2. 🚨 檢查 HTTP 狀態碼 (HTTP status code)
+        // 2. 檢查 HTTP 狀態碼 (HTTP status code)
         if (!r.ok) {
+          // (NEW) 檢查 401 錯誤
+          if (r.status === 401 || r.status === 403) {
+            throw new Error(`Authentication Failed (HTTP ${r.status}). Token might be expired. Redirecting to login...`);
+          }
           throw new Error(`Failed to fetch data: HTTP ${r.status} ${r.statusText}`);
         }
 
@@ -84,7 +161,7 @@
           rowsEl.innerHTML = `
             <tr>
               <td colspan="7" class="p-4 text-center text-gray-500">
-                No reservation data found. Try making a reservation first.
+                No reservation data found.
               </td>
             </tr>
           `;
@@ -97,9 +174,9 @@
           const canReduceMax = Math.max(0, Number(d.seats_taken) - 1);
           const reduceSelect = canReduceMax > 0
             ? `<select class="border rounded px-2 py-1" data-reduce-select="${d.id}">
-                 ${Array.from({length: canReduceMax}, (_,i)=>`<option value="${i+1}">${i+1}</option>`).join('')}
-               </select>
-               <button class="ml-2 px-3 py-1 rounded bg-gray-200 hover:bg-gray-300" data-reduce="${d.id}" data-max="${canReduceMax}">Reduce</button>`
+                ${Array.from({length: canReduceMax}, (_,i)=>`<option value="${i+1}">${i+1}</option>`).join('')}
+              </select>
+              <button class="ml-2 px-3 py-1 rounded bg-gray-200 hover:bg-gray-300" data-reduce="${d.id}" data-max="${canReduceMax}">Reduce</button>`
             : `<span class="text-gray-400">—</span>`;
 
           return `<tr class="hover:bg-gray-50">
@@ -124,21 +201,46 @@
           btn.addEventListener('click', async ()=>{
             const id = btn.getAttribute('data-cancel');
             if(!confirm('Cancel this reservation entirely?')) return;
-            // 🚨 修正：檢查 API 響應是否成功
-            const response = await fetch('/api/cancel', {method:'POST', headers:{'Content-Type':'application/json'}, body: JSON.stringify({reservation_id:id})});
-            if (response.ok) { load(); } else { alert('Failed to cancel reservation.'); }
+            
+            // (MODIFIED) 加上 headers 並改善錯誤處理
+            try {
+              const response = await fetch('/api/cancel', {
+                method:'POST', 
+                headers: getAuthHeaders(true), // (MODIFIED)
+                body: JSON.stringify({reservation_id:id})
+              });
+              
+              if (response.ok) { 
+                load(); 
+              } else { 
+                const errData = await response.json();
+                alert(`Failed to cancel: ${errData.message || 'Unknown error'}`); 
+              }
+            } catch (err) {
+              alert('Error: ' + err.message);
+            }
           });
         });
+        
         document.querySelectorAll('[data-reduce]').forEach(btn=>{
           btn.addEventListener('click', async ()=>{
             const id = btn.getAttribute('data-reduce');
             const sel = document.querySelector(`[data-reduce-select="${id}"]`);
             const n = Number(sel && sel.value);
             if(!n || n < 1){ alert('Select a number to reduce.'); return; }
-            // 🚨 修正：檢查 API 響應是否成功
-            const res = await fetch('/api/reduce', {method:'POST', headers:{'Content-Type':'application/json'}, body: JSON.stringify({reservation_id:id, reduce_by:n})});
+            
+            // (MODIFIED) 加上 headers
+            const res = await fetch('/api/reduce', {
+              method:'POST', 
+              headers: getAuthHeaders(true), // (MODIFIED)
+              body: JSON.stringify({reservation_id:id, reduce_by:n})
+            });
             const responseData = await res.json();
-            if(res.ok && responseData.success){ load(); } else { alert(responseData.message || 'Failed to reduce seats.'); }
+            if(res.ok && responseData.success){ 
+              load(); 
+            } else { 
+              alert(responseData.message || 'Failed to reduce seats.'); 
+            }
           });
         });
 
@@ -146,10 +248,18 @@
         // 6. 處理錯誤
         console.error('Reservation Data Load Error:', error);
         titleEl.textContent = `Reservation Records (Load Failed)`;
+        
+        // (NEW) 檢查 401/403 錯誤
+        let errorMsg = error.message;
+        if (error.message.includes('Authentication Failed')) {
+          errorMsg = error.message; // 使用我們自訂的錯誤
+          setTimeout(() => window.location.href = '/login.html', 3000);
+        }
+        
         rowsEl.innerHTML = `
           <tr>
             <td colspan="7" class="p-4 text-center text-red-600">
-              Error: ${error.message}. Please check App Runner Application Logs for backend errors.
+              Error: ${errorMsg}.
             </td>
           </tr>
         `;
