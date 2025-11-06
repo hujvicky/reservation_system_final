@@ -11,7 +11,7 @@ import os, io, csv, uuid, jwt
 from datetime import datetime, timezone, timedelta
 from functools import wraps
 import json
-import logging # (NEW) 建議加入 logging
+import logging 
 
 # (NEW) 設定日誌
 logging.basicConfig(level=logging.INFO)
@@ -70,7 +70,6 @@ def _find_reservation_and_date(reservation_id):
     """
     (修復 Bug 用)
     因為 s3_store 是用日期分資料夾，我們必須先找到訂單的日期。
-    這很沒效率，但 s3_store.py 就是這樣設計的。
     """
     if not reservation_id:
         return None, None
@@ -394,7 +393,7 @@ def reserve():
         print(f"[ERROR] Reservation failed: {e}")
         return jsonify(success=False, message=f"Reservation failed: {str(e)}"), 500
 
-# ---------- API：取消預約 (!!! 已修改 !!!) ----------
+# ---------- API：取消預約 (已修改) ----------
 @app.post("/api/cancel")
 @require_admin_token
 def cancel():
@@ -420,52 +419,12 @@ def cancel():
     else:
         return jsonify(success=False, message="Failed to cancel reservation"), 500
 
-# ---------- API：減少座位 (!!! 已修改 !!!) ----------
-@app.post("/api/reduce")
-@require_admin_token
-def reduce_seats():
-    payload = request.get_json(force=True)
-    reservation_id = payload.get("reservation_id")
-    reduce_by = payload.get("reduce_by", 0)
-
-    try:
-        reduce_by = int(reduce_by)
-    except Exception:
-        reduce_by = 0
-
-    if not reservation_id or reduce_by <= 0:
-        return jsonify(success=False, message="Invalid input"), 400
-
-    # (MODIFIED) 
-    # 1. 尋找訂單和它的日期
-    reservation, date_str = _find_reservation_and_date(reservation_id)
-    
-    if not reservation:
-        return jsonify(success=False, message="Reservation not found"), 404
-
-    current_seats = reservation["seats_taken"]
-
-    if reduce_by >= current_seats:
-        # 完全取消預約
-        # 2. 呼叫 delete_reservation 並傳入日期
-        if s3_store.delete_reservation(reservation_id, date_str):
-            s3_store.release_seats(reservation["table_id"], current_seats)
-            return jsonify(success=True, message=f"Reservation cancelled, returned {current_seats} seat(s).")
-    else:
-        # 減少座位數（使用台灣時區）
-        updated_reservation = reservation.copy()
-        updated_reservation["seats_taken"] = current_seats - reduce_by
-        updated_reservation["updated_at"] = datetime.now(TAIWAN_TZ).isoformat()
-
-        # 3. 呼叫 update_reservation 並傳入日期
-        if s3_store.update_reservation(reservation_id, updated_reservation, date_str):
-            s3_store.release_seats(reservation["table_id"], reduce_by)
-            return jsonify(success=True, message=f"Reduced {reduce_by} seat(s).")
-
-    return jsonify(success=False, message="Failed to reduce seats"), 500
+# ---------- (!!! REMOVED !!!) API：減少座位 ----------
+# def reduce_seats():
+#     ... (此函式已被移除，功能合併到 update_reservation_details) ...
 
 
-# ---------- API：更新訂位資訊 (!!! 已修改 !!!) ----------
+# ---------- (!!! NEW / UPGRADED !!!) API：更新訂位資訊 ----------
 @app.post("/api/admin/update_reservation")
 @require_admin_token
 def update_reservation_details():
@@ -473,9 +432,18 @@ def update_reservation_details():
     reservation_id = payload.get("reservation_id")
     new_login_id = payload.get("login_id")
     new_name = payload.get("employee_name")
+    
+    try:
+        # (NEW) 取得新的座位數
+        new_seats = int(payload.get("seats_taken"))
+    except (ValueError, TypeError):
+        return jsonify(success=False, message="Invalid seats_taken value"), 400
 
     if not reservation_id or not new_login_id or not new_name:
         return jsonify(success=False, message="Missing required fields"), 400
+    
+    if new_seats < 1 or new_seats > MAX_PER_BOOKING:
+        return jsonify(success=False, message=f"Seats must be between 1 and {MAX_PER_BOOKING}"), 400
 
     # 格式化
     new_login_id = new_login_id.strip().lower()
@@ -484,37 +452,63 @@ def update_reservation_details():
     if not new_login_id or not new_name:
         return jsonify(success=False, message="Fields cannot be empty"), 400
 
+    seat_diff = 0 # 初始化座位差異
+    table_id = None
+
     try:
-        # (MODIFIED) 
-        # 1. 尋找訂單和它的日期
+        # 1. 取得現有訂位和日期
         reservation, date_str = _find_reservation_and_date(reservation_id)
-        
         if not reservation:
             return jsonify(success=False, message="Reservation not found"), 404
 
         current_login_id = reservation.get("login_id")
+        current_seats = reservation.get("seats_taken")
+        table_id = reservation.get("table_id") # 取得桌號以供復原
 
-        # 2. 檢查 Login ID 是否被變更
+        # 2. (NEW) 處理座位數變更
+        seat_diff = new_seats - current_seats
+        
+        if seat_diff > 0:
+            # 嘗試增加座位
+            if not s3_store.reserve_seats(table_id, seat_diff):
+                return jsonify(success=False, message=f"Not enough seats available on Table {table_id} to add {seat_diff} seat(s)."), 409
+        elif seat_diff < 0:
+            # 減少座位
+            s3_store.release_seats(table_id, abs(seat_diff))
+
+        # 3. 檢查 Login ID 是否被變更
         if current_login_id != new_login_id:
-            # 3. 如果變更了，檢查新的 Login ID 是否已被他人使用
+            # 4. 如果變更了，檢查新的 Login ID 是否已被他人使用
             if s3_store.check_login_id_exists(new_login_id):
+                # (NEW) 復原座位變更！
+                if seat_diff > 0:
+                    s3_store.release_seats(table_id, seat_diff) # 歸還剛才預訂的座位
+                elif seat_diff < 0:
+                    s3_store.reserve_seats(table_id, abs(seat_diff)) # 拿回剛才釋放的座位
                 return jsonify(success=False, message=f"The new login_id '{new_login_id}' is already taken."), 409
         
-        # 4. 更新訂位物件
+        # 5. 更新訂位物件
         reservation["login_id"] = new_login_id
         reservation["employee_name"] = new_name
+        reservation["seats_taken"] = new_seats
         reservation["updated_at"] = datetime.now(TAIWAN_TZ).isoformat()
 
-        # 5. 儲存回 S3 (並傳入日期)
+        # 6. 儲存回 S3
         if s3_store.update_reservation(reservation_id, reservation, date_str):
-            # 備註: 這裡的 'check_login_id_exists' 是掃描所有檔案，
-            # 所以不需要手動更新 login_id 索引，這樣是 OK 的。
             return jsonify(success=True, message="Reservation updated.")
         else:
+            # (NEW) 復原座位變更！
+            if seat_diff > 0:
+                s3_store.release_seats(table_id, seat_diff)
+            elif seat_diff < 0:
+                s3_store.reserve_seats(table_id, abs(seat_diff))
             return jsonify(success=False, message="Failed to save update to S3."), 500
 
     except Exception as e:
-        print(f"[ERROR] Update reservation failed: {e}")
+        logger.error(f"[ERROR] Update reservation failed: {e}")
+        # (NEW) 處理未知的錯誤，並嘗試復原
+        if seat_diff > 0 and table_id:
+            s3_store.release_seats(table_id, seat_diff)
         return jsonify(success=False, message=str(e)), 500
 
 # ---------- API：資料重新同步 ----------
