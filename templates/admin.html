@@ -1,10 +1,12 @@
+```html
+
 <!DOCTYPE html>
 <html lang="en">
 <head>
   <meta charset="UTF-8">
   <meta name="viewport" content="width=device-width, initial-scale=1.0">
   <title>Admin Panel • Reservations</title>
-  <script src="https://cdn.tailwindcss.com"></script>
+  <script src="cdn.tailwindcss.com"></script>
 </head>
 <body class="bg-gray-50 p-6">
   <div class="max-w-7xl mx-auto">
@@ -122,7 +124,7 @@
         });
         const data = await res.json();
         if (res.ok && data.success) {
-          alert(''Resync Complete: ' + data.message);
+          alert('Resync Complete: ' + data.message); // 修正：移除多餘的 'D '
           load(); // 重新載入資料
         } else {
           alert('Resync Failed: ' + data.message);
@@ -228,7 +230,11 @@
               return;
             }
 
-            if (!confirm(`Are you sure you want to update this reservation?\n\nLogin ID: ${newLogin}\nName: ${newName}\nSeats: ${newSeats}`)) {
+            if (!confirm(`Are you sure you want to update this reservation?
+
+Login ID: ${newLogin}
+Name: ${newName}
+Seats: ${newSeats}`)) {
               return;
             }
             
@@ -251,7 +257,7 @@
                 loginInput.style.backgroundColor = '#d1fae5'; // 成功後變綠色
                 nameInput.style.backgroundColor = '#d1fae5';
                 seatsInput.style.backgroundColor = '#d1fae5';
-                setTimeout(() => { // 1秒後移除綠色
+                setTimeout(() => { // 1.5秒後移除綠色
                    loginInput.style.backgroundColor = '';
                    nameInput.style.backgroundColor = '';
                    seatsInput.style.backgroundColor = '';
@@ -263,7 +269,7 @@
                 loginInput.style.backgroundColor = '#fee2e2'; // 失敗後變紅色
                 nameInput.style.backgroundColor = '#fee2e2';
                 seatsInput.style.backgroundColor = '#fee2e2';
-                setTimeout(() => { // 1秒後移除紅色
+                setTimeout(() => { // 1.5秒後移除紅色
                    loginInput.style.backgroundColor = '';
                    nameInput.style.backgroundColor = '';
                    seatsInput.style.backgroundColor = '';
@@ -289,6 +295,7 @@
               });
               
               if (response.ok) { 
+                alert('Reservation cancelled successfully!');
                 load(); // 取消成功後，重新載入
               } else { 
                 const errData = await response.json();
@@ -299,9 +306,6 @@
             }
           });
         });
-        
-        // (REMOVED) Reduce Button Listener
-        // ... (已刪除) ...
 
       } catch (error) {
         // 6. 處理錯誤
@@ -317,13 +321,17 @@
         rowsEl.innerHTML = `
           <tr>
             <td colspan="7" class="p-4 text-center text-red-600">
-              Error: ${errorMsg}.
+              Error: ${errorMsg}
             </td>
           </tr>
         `;
       }
     }
+    
+    // 頁面載入完成後執行
     load();
   </script>
 </body>
 </html>
+
+``` Note: Please be mindful when interacting with displayed links.
