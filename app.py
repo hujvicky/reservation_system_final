@@ -1,6 +1,6 @@
 # ======================================
 # Reservation System - AWS App Runner + S3 版
-# 完整功能：CRUD + 防重投 + login_id 唯一(不分大小寫) + S3 儲存 + Admin 登入
+# FORCED REDEPLOY - 2025-11-06 v3
 # ======================================
 
 from flask import Flask, request, jsonify, send_file, render_template
