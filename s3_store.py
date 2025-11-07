@@ -1,5 +1,5 @@
 # ======================================
-# s3_store.py - 最終修正版 v9
+# s3_store.py - 最終修正版 v10 (date-auto-fix)
 # ======================================
 import boto3
 import json
@@ -17,38 +17,75 @@ TAIWAN_TZ = timezone(timedelta(hours=8))
 
 class S3Store:
     def __init__(self):
-        self.VERSION = "3.0-fix-delete-bug" # <-- 版本號
+        self.VERSION = "3.1-date-auto-fix"  # <-- 版本號
         self.bucket_name = os.environ.get('S3_BUCKET_NAME', 'seat-reservation-data-2025')
         self.s3_client = boto3.client('s3')
         self.s3_resource = boto3.resource('s3')
         self.bucket = self.s3_resource.Bucket(self.bucket_name)
 
-    def _get_reservation_key(self, slot_id, date_str=None):
-        """生成預訂資料的 S3 key"""
-        if date_str is None:
-            date_str = datetime.now(TAIWAN_TZ).strftime('%Y-%m-%d')
-        return f"reservations/{date_str}/{slot_id}.json"
+    # -------- 日期與 Key 輔助 --------
+    def _normalize_date(self, date_str):
+        """
+        將多種格式正規化為 'YYYY-MM-DD'；若無法判讀則回傳 None
+        可處理：'2025/10/27 08:38:22', '2025/10/27', '2025-10-27T08:38:22' 等
+        """
+        if not date_str:
+            return None
+        ds = str(date_str).strip().replace('/', '-')
+        if len(ds) >= 10:
+            ds = ds[:10]
+        try:
+            # 驗證
+            datetime.strptime(ds, '%Y-%m-%d')
+            return ds
+        except Exception:
+            return None
 
-    # (!!! 修正 1 !!!)
-    # save_reservation 必須接受 date_str 參數
+    def _find_date_by_slot(self, slot_id):
+        """
+        當未知或傳錯 date_str 時，遍歷 reservations/*/slot_id.json 找出實際日期資料夾
+        回傳 'YYYY-MM-DD' 或 None
+        """
+        try:
+            paginator = self.s3_client.get_paginator('list_objects_v2')
+            for page in paginator.paginate(Bucket=self.bucket_name, Prefix='reservations/'):
+                for obj in page.get('Contents', []):
+                    key = obj['Key']
+                    if key.endswith(f'/{slot_id}.json'):
+                        # e.g. reservations/2025-10-27/abcd.json
+                        parts = key.split('/')
+                        if len(parts) >= 3:
+                            return parts[1]
+        except ClientError as e:
+            logger.error(f"遍歷查找 slot 所在日期失敗: {e}")
+        return None
+
+    def _get_reservation_key(self, slot_id, date_str=None):
+        """生成預訂資料的 S3 key（會先正規化日期）"""
+        ds = self._normalize_date(date_str)
+        if ds is None:
+            ds = datetime.now(TAIWAN_TZ).strftime('%Y-%m-%d')
+        return f"reservations/{ds}/{slot_id}.json"
+
+    # -------- 讀寫單筆 --------
     def save_reservation(self, slot_id, reservation_data, date_str=None):
-        """儲存預訂資料到 S3"""
+        """儲存預訂資料到 S3（自動修正日期；若沒帶日期會先嘗試找舊檔的日期）"""
         try:
             # 確保資料包含時間戳記
             reservation_data['created_at'] = reservation_data.get('created_at', datetime.now(TAIWAN_TZ).isoformat())
             reservation_data['updated_at'] = datetime.now(TAIWAN_TZ).isoformat()
 
-            # (MODIFIED) 使用傳入的 date_str (如果有的話)
-            key = self._get_reservation_key(slot_id, date_str)
+            # 優先使用正規化後的 date_str；若沒有，嘗試找出舊檔所在日期；仍無 → 今日
+            ds = self._normalize_date(date_str) or self._find_date_by_slot(slot_id) \
+                 or datetime.now(TAIWAN_TZ).strftime('%Y-%m-%d')
+            key = f"reservations/{ds}/{slot_id}.json"
 
-            # 將資料轉換為 JSON 並上傳到 S3
             self.s3_client.put_object(
                 Bucket=self.bucket_name,
                 Key=key,
                 Body=json.dumps(reservation_data, ensure_ascii=False, indent=2),
                 ContentType='application/json'
             )
-
             logger.info(f"預訂資料已儲存到 S3: {key}")
             return True
 
@@ -57,37 +94,46 @@ class S3Store:
             return False
 
     def get_reservation(self, slot_id, date_str=None):
-        """從 S3 讀取預訂資料"""
-        try:
-            key = self._get_reservation_key(slot_id, date_str)
+        """從 S3 讀取預訂資料（會自動嘗試修正日期與跨日期搜尋）"""
+        # 第一次：依傳入日期（若可正規化）
+        ds = self._normalize_date(date_str)
+        if ds:
+            key = f"reservations/{ds}/{slot_id}.json"
+            try:
+                response = self.s3_client.get_object(Bucket=self.bucket_name, Key=key)
+                data = json.loads(response['Body'].read().decode('utf-8'))
+                logger.info(f"成功讀取預訂資料: {key}")
+                return data
+            except ClientError as e:
+                if e.response['Error']['Code'] != 'NoSuchKey':
+                    logger.error(f"讀取預訂資料失敗: {e}")
 
-            response = self.s3_client.get_object(
-                Bucket=self.bucket_name,
-                Key=key
-            )
+        # 第二次：跨日期搜尋 slot 檔
+        real_ds = self._find_date_by_slot(slot_id)
+        if real_ds:
+            key = f"reservations/{real_ds}/{slot_id}.json"
+            try:
+                response = self.s3_client.get_object(Bucket=self.bucket_name, Key=key)
+                data = json.loads(response['Body'].read().decode('utf-8'))
+                logger.info(f"成功讀取預訂資料(跨日期): {key}")
+                return data
+            except ClientError as e:
+                logger.error(f"讀取預訂資料失敗(跨日期): {e}")
 
-            data = json.loads(response['Body'].read().decode('utf-8'))
-            logger.info(f"成功讀取預訂資料: {key}")
-            return data
-
-        except ClientError as e:
-            if e.response['Error']['Code'] == 'NoSuchKey':
-                logger.info(f"預訂資料不存在: {key}")
-                return None
-            else:
-                logger.error(f"讀取預訂資料失敗: {e}")
-                return None
+        logger.info(f"預訂資料不存在: slot_id={slot_id}, date={date_str}")
+        return None
 
     def delete_reservation(self, slot_id, date_str=None):
-        """從 S3 刪除預訂資料"""
+        """從 S3 刪除預訂資料（會自動修正日期與跨日期搜尋）"""
         try:
-            key = self._get_reservation_key(slot_id, date_str)
+            # 先試使用傳入日期；失敗時自動尋找實際日期
+            ds = self._normalize_date(date_str) or self._find_date_by_slot(slot_id)
+            if not ds:
+                logger.warning(f"刪除失敗，找不到日期資料夾: slot_id={slot_id}")
+                return False
 
-            self.s3_client.delete_object(
-                Bucket=self.bucket_name,
-                Key=key
-            )
-
+            key = f"reservations/{ds}/{slot_id}.json"
+            self.s3_client.delete_object(Bucket=self.bucket_name, Key=key)
             logger.info(f"預訂資料已刪除: {key}")
             return True
 
@@ -95,72 +141,68 @@ class S3Store:
             logger.error(f"刪除預訂資料失敗: {e}")
             return False
 
+    # -------- 列表查詢 --------
     def list_reservations_by_date(self, date_str):
-        """列出指定日期的所有預訂"""
+        """列出指定日期的所有預訂（允許傳入 '2025/11/07 10:10:26' 等格式）"""
         try:
-            prefix = f"reservations/{date_str}/"
+            ds = self._normalize_date(date_str)
+            if not ds:
+                logger.warning(f"list_reservations_by_date：無法辨識日期，輸入={date_str}")
+                return []
 
-            response = self.s3_client.list_objects_v2(
-                Bucket=self.bucket_name,
-                Prefix=prefix
-            )
+            prefix = f"reservations/{ds}/"
+            response = self.s3_client.list_objects_v2(Bucket=self.bucket_name, Prefix=prefix)
 
             reservations = []
             if 'Contents' in response:
                 for obj in response['Contents']:
-                    # 提取 slot_id
                     key = obj['Key']
+                    if not key.endswith('.json'):
+                        continue
                     slot_id = key.split('/')[-1].replace('.json', '')
-
-                    # 讀取預訂資料
-                    reservation_data = self.get_reservation(slot_id, date_str)
+                    reservation_data = self.get_reservation(slot_id, ds)
                     if reservation_data:
                         reservation_data['slot_id'] = slot_id
                         reservations.append(reservation_data)
 
-            logger.info(f"找到 {len(reservations)} 筆預訂資料 ({date_str})")
+            logger.info(f"找到 {len(reservations)} 筆預訂資料 ({ds})")
             return reservations
 
         except ClientError as e:
             logger.error(f"列出預訂資料失敗: {e}")
             return []
 
-    # (!!! 修正 2 !!!)
-    # update_reservation 必須將 date_str 傳遞給 save_reservation
+    # -------- 更新 --------
     def update_reservation(self, slot_id, updated_data, date_str=None):
-        """更新預訂資料"""
+        """更新預訂資料（日期自動修正；若沒帶正確日期仍可更新舊檔）"""
         try:
-            # 先讀取現有資料
             existing_data = self.get_reservation(slot_id, date_str)
             if existing_data is None:
                 logger.warning(f"預訂資料不存在，無法更新: {slot_id}")
                 return False
 
-            # 合併資料
             existing_data.update(updated_data)
             existing_data['updated_at'] = datetime.now(TAIWAN_TZ).isoformat()
 
-            # (MODIFIED) 儲存更新後的資料 (傳入 date_str)
+            # 儲存時會自動決定正確的日期資料夾
             return self.save_reservation(slot_id, existing_data, date_str)
 
         except Exception as e:
             logger.error(f"更新預訂資料失敗: {e}")
             return False
 
+    # -------- 其它原有功能 --------
     def test_connection(self):
         """測試 S3 連線"""
         try:
-            # 嘗試列出 bucket
             self.s3_client.head_bucket(Bucket=self.bucket_name)
             logger.info(f"S3 連線成功: {self.bucket_name}")
             return True
-
         except ClientError as e:
             logger.error(f"S3 連線失敗: {e}")
             return False
 
     # ========== 新增的方法（注意縮排和 self 參數）==========
-
     def get_tables_data(self):
         """獲取所有桌位資料"""
         try:
@@ -222,12 +264,13 @@ class S3Store:
             if table_key not in tables_data:
                 return False
 
-            # (NEW) 增加保護，避免座位數超過總數
             total_seats = tables_data[table_key].get("total", 10)
             new_seats_left = tables_data[table_key]["seats_left"] + seats_count
             
             if new_seats_left > total_seats:
-                logger.warning(f"座位數修正：Table {table_id} 釋放 {seats_count} 後座位數 ({new_seats_left}) 超過總數 {total_seats}。將設定為 {total_seats}。")
+                logger.warning(
+                    f"座位數修正：Table {table_id} 釋放 {seats_count} 後座位數 ({new_seats_left}) 超過總數 {total_seats}。將設定為 {total_seats}。"
+                )
                 tables_data[table_key]["seats_left"] = total_seats
             else:
                 tables_data[table_key]["seats_left"] = new_seats_left
@@ -251,20 +294,15 @@ class S3Store:
         """獲取所有預訂資料 (已修正分頁問題)"""
         reservations = []
         try:
-            # 使用 Paginator 處理分頁，確保讀取所有檔案
             paginator = self.s3_client.get_paginator('list_objects_v2')
             pages = paginator.paginate(
                 Bucket=self.bucket_name,
                 Prefix='reservations/'
             )
-
-            # 遍歷所有頁面
             for page in pages:
                 if 'Contents' in page:
                     for obj in page['Contents']:
-                        # 檢查 Key 是否為 JSON 檔案，並排除目錄本身 (Key 結尾為 / 的情況)
                         if obj['Key'].endswith('.json'):
-                            # 讀取物件內容
                             try:
                                 obj_response = self.s3_client.get_object(
                                     Bucket=self.bucket_name,
@@ -274,7 +312,6 @@ class S3Store:
                                 reservations.append(reservation_data)
                             except Exception as e:
                                 logger.warning(f"無法讀取預約檔案 {obj['Key']}: {e}")
-            
             return reservations
 
         except ClientError as e:
