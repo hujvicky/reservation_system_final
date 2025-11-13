@@ -1,17 +1,56 @@
 version: 1.0
-runtime: python3
+# (優化) 使用明確的 Python 3.11
+runtime: python311 
 build:
   commands:
     build:
-      - echo "Installing dependencies"
+      - echo "正在安裝依賴套件..."
       - pip install -r requirements.txt
 run:
-  runtime-version: 3.11
-  command: python app.py
+  # (!!! 關鍵優化 !!!)
+  # 1. 使用 Gunicorn (高效能 WSGI 伺服器) 而不是 'python app.py'
+  # 2. --workers 4: 啟動 4 個工作程序來併發處理請求
+  # 3. "app:app": 執行 app.py 檔案中的 app 物件
+  # 4. 綁定到 $PORT 環境變數
+  command: gunicorn --workers 4 --bind :$PORT "app:app"
+  
   network:
-    port: 8000
+    # (優化) App Runner 會將 $PORT 環境變數設為 8080
+    port: 8080 
+  
   env:
     - name: S3_BUCKET_NAME
       value: "seat-reservation-data-2025"
     - name: AWS_DEFAULT_REGION
       value: "us-east-1"
+    # (建議) 您也應該在這裡設定 JWT_SECRET
+    # - name: JWT_SECRET
+    #   value: "your-very-strong-production-secret-key"
+    # (建議) 在正式環境中啟用驗證
+    # - name: ENABLE_ADMIN_AUTH
+    #   value: "true"
+
+# (新) 執行個體設定 (建議)
+instance_configuration:
+  # 1 vCPU (1024 CPU 單位)
+  cpu: 1024
+  # 2 GB 記憶體
+  memory: 2048
+
+# (新) 自動擴展 (建議)
+# 這是針對 ~300 人同時使用情境的建議
+autoscaling:
+  # 最小執行個體數
+  # 設定為 1 可以避免冷啟動，反應更快，但成本稍高
+  min_size: 1
+  
+  # 最大執行個體數
+  # 允許擴展到 5 個執行個體以應對高峰
+  max_size: 5
+  
+  # 每個執行個體的併發請求數 (關鍵)
+  # 由於您的 API 現在非常快 (快取讀取 < 10ms，CAS 寫入 < 100ms)。
+  # 一個執行個體 (有 4 個 Gunicorn worker) 可以輕鬆處理大量併發。
+  # 
+  # 總容量 = max_size * max_concurrency = 5 * 80 = 400 併發請求
+  max_concurrency: 80
