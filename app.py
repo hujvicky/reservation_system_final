@@ -5,12 +5,13 @@
 from flask import Flask, request, jsonify, send_file, render_template
 from flask_cors import CORS
 from s3_store import S3Store
+from ddb_store import DynamoDBStore
 from pathlib import Path
 import os, io, csv, uuid, jwt
 from datetime import datetime, timezone, timedelta
 from functools import wraps
 import json
-import logging 
+import logging
 
 # (NEW) 設定日誌
 logging.basicConfig(level=logging.INFO)
@@ -36,8 +37,16 @@ TEMPLATES_DIR = PROJECT_DIR / "templates"
 app = Flask(__name__, template_folder=str(TEMPLATES_DIR), static_folder="static")
 CORS(app)
 
-# ---------- S3 儲存初始化 ----------
-s3_store = S3Store()
+# ---------- 儲存層初始化 ----------
+# 根據環境變數選擇儲存後端 (預設使用DynamoDB)
+USE_DYNAMODB = os.environ.get('USE_DYNAMODB', 'true').lower() == 'true'
+
+if USE_DYNAMODB:
+    print("[INFO] Using DynamoDB as storage backend")
+    store = DynamoDBStore()
+else:
+    print("[INFO] Using S3 as storage backend")
+    store = S3Store()
 
 MAX_PER_BOOKING = 3
 
@@ -70,12 +79,12 @@ def require_admin_token(f):
 def _find_reservation_and_date(reservation_id):
     """
     (修復 Bug 用)
-    因為 s3_store 是用日期分資料夾，我們必須先找到訂單的日期。
+    查找訂單並取得相關日期信息。
     """
     if not reservation_id:
         return None, None
         
-    all_reservations = s3_store.get_all_reservations()
+    all_reservations = store.get_all_reservations()
     reservation = next((r for r in all_reservations if r.get('id') == reservation_id), None)
     
     if not reservation:
@@ -85,7 +94,7 @@ def _find_reservation_and_date(reservation_id):
         created_at_iso = reservation.get("created_at")
         # 從 ISO 格式字串解析出 datetime 物件
         created_dt = datetime.fromisoformat(created_at_iso)
-        # 格式化成 s3_store.py 需要的 'YYYY-MM-DD'
+        # 格式化成需要的 'YYYY-MM-DD'
         date_str = created_dt.strftime('%Y-%m-%d')
         return reservation, date_str
     except Exception as e:
@@ -96,12 +105,12 @@ def _find_reservation_and_date(reservation_id):
 
 # ---------- 初始化桌位資料 ----------
 def init_tables():
-    """初始化桌位資料到 S3"""
+    """初始化桌位資料"""
     try:
         # 檢查是否已有桌位資料
-        existing_tables = s3_store.get_tables_data()
+        existing_tables = store.get_tables_data()
         if existing_tables:
-            print("[INFO] Tables data already exists in S3")
+            print("[INFO] Tables data already exists")
             return
 
         # 建立預設桌位資料
@@ -114,10 +123,10 @@ def init_tables():
                 "seats_left": 10
             }
 
-        if s3_store.save_tables_data(tables_data):
-            print("[INFO] Initialized tables (1..108) in S3.")
+        if store.save_tables_data(tables_data):
+            print("[INFO] Initialized tables (1..108).")
         else:
-            print("[WARN] Failed to initialize tables in S3.")
+            print("[WARN] Failed to initialize tables.")
 
     except Exception as e:
         print(f"[WARN] init_tables failed: {e}")
@@ -132,10 +141,22 @@ except Exception as e:
 @app.route("/api/version")
 def get_version():
     """檢查後端版本，用於除錯"""
-    return jsonify(
-        app_version=APP_VERSION, 
-        s3_store_version=getattr(s3_store, 'VERSION', 'unknown')
-    )
+    try:
+        # 創建 S3Store 實例以檢查版本（向後相容）
+        s3_store = S3Store() if not USE_DYNAMODB else None
+        return jsonify(
+            app_version=APP_VERSION, 
+            store_type="DynamoDB" if USE_DYNAMODB else "S3",
+            store_version=getattr(store, 'VERSION', 'unknown'),
+            s3_store_version=getattr(s3_store, 'VERSION', 'unknown') if s3_store else 'N/A'
+        )
+    except Exception as e:
+        return jsonify(
+            app_version=APP_VERSION, 
+            store_type="DynamoDB" if USE_DYNAMODB else "S3",
+            store_version=getattr(store, 'VERSION', 'unknown'),
+            error=str(e)
+        )
 
 # ---------- 頁面路由 ----------
 @app.route("/")
@@ -163,20 +184,35 @@ def reports_page():
 def health():
     return jsonify(ok=True)
 
-# ---------- S3 連線測試 ----------
-@app.route('/test-s3')
-def test_s3():
-    if s3_store.test_connection():
-        return jsonify({
+# ---------- 儲存連線測試 ----------
+@app.route('/test-connection')
+def test_connection():
+    if store.test_connection():
+        store_type = "DynamoDB" if USE_DYNAMODB else "S3"
+        message = f'{store_type} 連線成功！'
+        response_data = {
             'status': 'success',
-            'message': 'S3 連線成功！',
-            'bucket': s3_store.bucket_name
-        })
+            'message': message,
+            'store_type': store_type
+        }
+        
+        # 如果是S3，添加bucket資訊
+        if not USE_DYNAMODB:
+            response_data['bucket'] = getattr(store, 'bucket_name', 'unknown')
+            
+        return jsonify(response_data)
     else:
+        store_type = "DynamoDB" if USE_DYNAMODB else "S3"
         return jsonify({
             'status': 'error',
-            'message': 'S3 連線失敗'
+            'message': f'{store_type} 連線失敗',
+            'store_type': store_type
         }), 500
+
+# ---------- S3 連線測試 (向後相容) ----------
+@app.route('/test-s3')
+def test_s3():
+    return test_connection()
 
 # ---------- Admin 登入 API ----------
 @app.post("/api/admin/login")
@@ -216,14 +252,14 @@ def admin_verify():
 # ---------- API：座位狀態 (已修改版) ----------
 @app.get("/api/status")
 def api_status():
-    tables_data = s3_store.get_tables_data()
+    tables_data = store.get_tables_data()
     if not tables_data:
         return jsonify({"tables": []})
 
     # === (MODIFIED) START: 查詢所有訂位並建立查詢表 (包含座位數) ===
     
     # 1. 取得所有訂位紀錄
-    all_reservations = s3_store.get_all_reservations()
+    all_reservations = store.get_all_reservations()
     
     # 2. 建立一個 map (table_id_str -> [ {name:..., seats:...}, ... ])
     reservations_map = {}
@@ -263,7 +299,7 @@ def api_status():
 # ---------- API：桌位清單 ----------
 @app.get("/api/tables")
 def api_tables():
-    tables_data = s3_store.get_tables_data()
+    tables_data = store.get_tables_data()
     if not tables_data:
         return jsonify([])
 
@@ -282,7 +318,7 @@ def api_tables():
 # ---------- API：可用性 ----------
 @app.get("/api/reservations/availability")
 def api_availability():
-    tables_data = s3_store.get_tables_data()
+    tables_data = store.get_tables_data()
     if not tables_data:
         return jsonify({"holds": [], "confirmed": []})
 
@@ -303,8 +339,9 @@ def list_reservations():
 
     try:
         # 獲取所有預約
-        all_reservations = s3_store.get_all_reservations()
-        print(f"[DEBUG] Found {len(all_reservations)} reservations in S3")
+        all_reservations = store.get_all_reservations()
+        store_type = "DynamoDB" if USE_DYNAMODB else "S3"
+        print(f"[DEBUG] Found {len(all_reservations)} reservations in {store_type}")
 
         # 過濾條件
         if table_id:
@@ -361,17 +398,17 @@ def reserve():
 
     try:
         # 檢查防重複提交
-        existing_idem = s3_store.get_idempotency_key(idem_key)
+        existing_idem = store.get_idempotency_key(idem_key)
         if existing_idem:
             return jsonify(success=True, message="Already processed",
                            reservation_id=existing_idem.get("reservation_id")), 200
 
         # 檢查 login_id 是否已存在
-        if s3_store.check_login_id_exists(login_id):
+        if store.check_login_id_exists(login_id):
             return jsonify(success=False, message="This login_id already has a reservation."), 409
 
         # 檢查座位是否足夠並扣除
-        if not s3_store.reserve_seats(table_id, seats):
+        if not store.reserve_seats(table_id, seats):
             return jsonify(success=False, message="This table is full or seats are not enough now."), 409
 
         # 建立預約（使用台灣時區）
@@ -388,16 +425,14 @@ def reserve():
         print(f"[DEBUG] Creating reservation: {reservation_data}")
 
         # 儲存預約和防重複鍵
-        # (MODIFIED) 傳入 reservation_id 和 date_str=None (讓 s3_store 用今天日期)
-        # 這裡的 date_str=None 很重要，這樣 s3_store.py 才會自動抓今天日期
-        if s3_store.save_reservation(reservation_id, reservation_data, date_str=None):
-            s3_store.save_idempotency_key(idem_key, {"reservation_id": reservation_id})
+        if store.save_reservation(reservation_id, reservation_data, date_str=None):
+            store.save_idempotency_key(idem_key, {"reservation_id": reservation_id})
             print(f"[INFO] Reservation created successfully: {reservation_id}")
             return jsonify(success=True, message="Reservation confirmed!",
                            reservation_id=reservation_id, table_id=table_id), 201
         else:
             # 如果儲存失敗，回復座位
-            s3_store.release_seats(table_id, seats)
+            store.release_seats(table_id, seats)
             return jsonify(success=False, message="Failed to save reservation"), 500
 
     except Exception as e:
@@ -422,10 +457,9 @@ def cancel():
         return jsonify(success=False, message="Reservation not found"), 404
 
     # 2. 呼叫 delete_reservation 並傳入日期
-    # (注意: s3_store.py 的 'slot_id' 參數其實就是 reservation_id)
-    if s3_store.delete_reservation(reservation_id, date_str):
+    if store.delete_reservation(reservation_id, date_str):
         # 3. 成功刪除後，釋放座位
-        s3_store.release_seats(reservation["table_id"], reservation["seats_taken"])
+        store.release_seats(reservation["table_id"], reservation["seats_taken"])
         return jsonify(success=True)
     else:
         return jsonify(success=False, message="Failed to cancel reservation"), 500
@@ -479,21 +513,21 @@ def update_reservation_details():
         
         if seat_diff > 0:
             # 嘗試增加座位
-            if not s3_store.reserve_seats(table_id, seat_diff):
+            if not store.reserve_seats(table_id, seat_diff):
                 return jsonify(success=False, message=f"Not enough seats available on Table {table_id} to add {seat_diff} seat(s)."), 409
         elif seat_diff < 0:
             # 減少座位
-            s3_store.release_seats(table_id, abs(seat_diff))
+            store.release_seats(table_id, abs(seat_diff))
 
         # 3. 檢查 Login ID 是否被變更
         if current_login_id != new_login_id:
             # 4. 如果變更了，檢查新的 Login ID 是否已被他人使用
-            if s3_store.check_login_id_exists(new_login_id):
+            if store.check_login_id_exists(new_login_id):
                 # (NEW) 復原座位變更！
                 if seat_diff > 0:
-                    s3_store.release_seats(table_id, seat_diff) # 歸還剛才預訂的座位
+                    store.release_seats(table_id, seat_diff) # 歸還剛才預訂的座位
                 elif seat_diff < 0:
-                    s3_store.reserve_seats(table_id, abs(seat_diff)) # 拿回剛才釋放的座位
+                    store.reserve_seats(table_id, abs(seat_diff)) # 拿回剛才釋放的座位
                 return jsonify(success=False, message=f"The new login_id '{new_login_id}' is already taken."), 409
         
         # 5. 更新訂位物件
@@ -502,24 +536,24 @@ def update_reservation_details():
         reservation["seats_taken"] = new_seats
         reservation["updated_at"] = datetime.now(TAIWAN_TZ).isoformat()
 
-        # 6. 儲存回 S3
-        if s3_store.update_reservation(reservation_id, reservation, date_str):
+        # 6. 儲存更新
+        if store.update_reservation(reservation_id, reservation, date_str):
             return jsonify(success=True, message="Reservation updated.")
         else:
             # (NEW) 復原座位變更！
             if seat_diff > 0:
-                s3_store.release_seats(table_id, seat_diff)
+                store.release_seats(table_id, seat_diff)
             elif seat_diff < 0:
-                s3_store.reserve_seats(table_id, abs(seat_diff))
-            return jsonify(success=False, message="Failed to save update to S3."), 500
+                store.reserve_seats(table_id, abs(seat_diff))
+            return jsonify(success=False, message="Failed to save update."), 500
 
     except Exception as e:
         logger.error(f"[ERROR] Update reservation failed: {e}")
         # (NEW) 處理未知的錯誤，並嘗試復原 (更安全的 rollback)
         if seat_diff > 0 and table_id:
-            s3_store.release_seats(table_id, seat_diff)
+            store.release_seats(table_id, seat_diff)
         elif seat_diff < 0 and table_id:
-             s3_store.reserve_seats(table_id, abs(seat_diff))
+             store.reserve_seats(table_id, abs(seat_diff))
         return jsonify(success=False, message=str(e)), 500
 
 # ---------- API：資料重新同步 ----------
@@ -528,18 +562,18 @@ def update_reservation_details():
 def admin_resync():
     """
     重新計算所有桌子的 seats_left。
-    以 'reservations/' 資料夾為準，去更新 'tables.json'。
+    以訂位資料為準，去更新桌位狀態。
     """
     try:
         print("[INFO] Starting table data resynchronization...")
         
         # 1. 取得目前桌位資料 (我們需要 'total' 總容量)
-        tables_data = s3_store.get_tables_data()
+        tables_data = store.get_tables_data()
         if not tables_data:
             return jsonify(success=False, message="No tables data found to resync."), 500
 
         # 2. 取得「所有」訂單 (這是我們唯一的「事實來源」)
-        all_reservations = s3_store.get_all_reservations()
+        all_reservations = store.get_all_reservations()
 
         # 3. 重新計算每張桌子「實際」被佔用的座位數
         actual_seats_taken = {} # 格式: { "table_id_str": count, ... }
@@ -551,7 +585,7 @@ def admin_resync():
                 actual_seats_taken[table_id_str] = 0
             actual_seats_taken[table_id_str] += seats
 
-        # 4. 迴圈檢查 'tables.json' 並修正 'seats_left'
+        # 4. 迴圈檢查桌位資料並修正 'seats_left'
         updated_count = 0
         for table_id_str, table in tables_data.items():
             total_seats = table.get("total", 10) # 取得總座位數
@@ -559,14 +593,14 @@ def admin_resync():
             
             new_seats_left = total_seats - taken_seats
             
-            # 如果 S3 上的 'seats_left' 不等於我們剛算出的新數字，就更新它
+            # 如果現有的 'seats_left' 不等於我們剛算出的新數字，就更新它
             if table["seats_left"] != new_seats_left:
                 print(f"[RESYNC] Table {table_id_str}: Seats left was {table['seats_left']}, correcting to {new_seats_left}")
                 table["seats_left"] = new_seats_left
                 updated_count += 1
             
-        # 5. 將修正後的 'tables_data' 完整存回 S3
-        if s3_store.save_tables_data(tables_data):
+        # 5. 將修正後的 'tables_data' 完整存回儲存系統
+        if store.save_tables_data(tables_data):
             print(f"[INFO] Resync complete. {updated_count} table(s) were corrected.")
             return jsonify(success=True, message=f"Resync complete. {updated_count} table(s) corrected.")
         else:
@@ -586,7 +620,7 @@ def export_csv():
     writer = csv.writer(out)
     writer.writerow(["id", "table_id", "seats_taken", "employee_name", "login_id", "created_at"])
 
-    reservations = s3_store.get_all_reservations()
+    reservations = store.get_all_reservations()
     reservations.sort(key=lambda x: x.get("created_at", ""), reverse=True)
 
     for r in reservations:

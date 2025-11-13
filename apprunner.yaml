@@ -13,7 +13,18 @@ run:
   network:
     port: 8080
   env:
+    # Storage backend configuration
+    - name: USE_DYNAMODB
+      value: "true"
     - name: S3_BUCKET_NAME
       value: "seat-reservation-data-2025"
     - name: AWS_DEFAULT_REGION
       value: "us-east-1"
+    
+    # DynamoDB table names
+    - name: RESERVATIONS_TABLE
+      value: "seat-reservations"
+    - name: TABLES_TABLE
+      value: "seat-tables"
+    - name: IDEMPOTENCY_TABLE
+      value: "seat-idempotency"
