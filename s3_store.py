@@ -410,7 +410,7 @@ class S3Store:
             )
             return True
         except ClientError as e:
-            # (日誌 中文)
+            # (日誌 中V)
             logger.error(f"儲存防重複鍵失敗: {e}")
             return False
 
