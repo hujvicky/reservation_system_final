@@ -139,16 +139,25 @@ class DynamoDBStore:
                         {'AttributeName': 'idempotency_key', 'AttributeType': 'S'},
                     ],
                     BillingMode='PROVISIONED',
-                    ProvisionedThroughput={'ReadCapacityUnits': 5, 'WriteCapacityUnits': 5},
-                    TimeToLiveSpecification={
-                        'AttributeName': 'ttl',
-                        'Enabled': True
-                    }
+                    ProvisionedThroughput={'ReadCapacityUnits': 5, 'WriteCapacityUnits': 5}
                 )
                 
                 waiter = self.client.get_waiter('table_exists')
                 waiter.wait(TableName=self.idempotency_table)
                 logger.info(f"防重複表 {self.idempotency_table} 創建成功")
+                
+                # Enable TTL after table creation (separate API call)
+                try:
+                    self.client.update_time_to_live(
+                        TableName=self.idempotency_table,
+                        TimeToLiveSpecification={
+                            'AttributeName': 'ttl',
+                            'Enabled': True
+                        }
+                    )
+                    logger.info(f"防重複表 {self.idempotency_table} TTL已啟用")
+                except ClientError as ttl_error:
+                    logger.warning(f"啟用TTL失敗: {ttl_error}")
 
     def test_connection(self):
         """測試DynamoDB連接"""
