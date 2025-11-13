@@ -1,5 +1,5 @@
 # ======================================
-# s3_store.py - v11 (快取 + CAS 優化版)
+# s3_store.py - v11.1 (CAS 錯誤修正 - 中文日誌)
 # ======================================
 import boto3
 import json
@@ -19,10 +19,10 @@ TAIWAN_TZ = timezone(timedelta(hours=8))
 
 class S3Store:
     def __init__(self):
-        self.VERSION = "4.0-cache-cas-optimized"  # <-- 版本號
+        self.VERSION = "4.3-cas-fix-zh-log"  # <-- 版本號
         self.bucket_name = os.environ.get('S3_BUCKET_NAME', 'seat-reservation-data-2025')
         self.s3_client = boto3.client('s3')
-        self.s3_resource = boto3.resource('s3')
+        self.s3_resource = boto3.resource('s3') # (!!!) 我們需要這個 resource
         self.bucket = self.s3_resource.Bucket(self.bucket_name)
 
         # (新) 記憶體快取 (用於 get_all_reservations)
@@ -34,12 +34,14 @@ class S3Store:
     # -------- (新) 快取控制 --------
     def _clear_all_reservations_cache(self):
         """清除 get_all_reservations 的快取"""
+        # (日誌 中文)
         logger.info("清除 'all_reservations' 快取...")
         self.all_reservations_expiry = 0
         self.all_reservations_cache = None
 
     # -------- 日期與 Key 輔助 (保持不變) --------
     def _normalize_date(self, date_str):
+        # ... 
         if not date_str: return None
         ds = str(date_str).strip().replace('/', '-')
         if len(ds) >= 10: ds = ds[:10]
@@ -50,6 +52,7 @@ class S3Store:
             return None
 
     def _find_date_by_slot(self, slot_id):
+        # ... 
         try:
             paginator = self.s3_client.get_paginator('list_objects_v2')
             for page in paginator.paginate(Bucket=self.bucket_name, Prefix='reservations/'):
@@ -60,12 +63,14 @@ class S3Store:
                         if len(parts) >= 3:
                             return parts[1]
         except ClientError as e:
+            # (日誌 中文)
             logger.error(f"遍歷查找 slot 所在日期失敗: {e}")
         return None
 
     # -------- 讀寫單筆 (!!! 已優化 !!!) --------
     def save_reservation(self, slot_id, reservation_data, date_str=None):
         """儲存預訂資料到 S3 (!!! 已優化：儲存後清除快取 !!!)"""
+        # ... 
         try:
             reservation_data['created_at'] = reservation_data.get('created_at', datetime.now(TAIWAN_TZ).isoformat())
             reservation_data['updated_at'] = datetime.now(TAIWAN_TZ).isoformat()
@@ -77,15 +82,18 @@ class S3Store:
                 Body=json.dumps(reservation_data, ensure_ascii=False, indent=2),
                 ContentType='application/json'
             )
+            # (日誌 中文)
             logger.info(f"預訂資料已儲存到 S3: {key}")
             self._clear_all_reservations_cache() # (優化) 清除快取
             return True
         except ClientError as e:
+            # (日誌 中文)
             logger.error(f"儲存預訂資料失敗: {e}")
             return False
 
     def get_reservation(self, slot_id, date_str=None):
         """從 S3 讀取預訂資料 (保持不變)"""
+        # ... 
         ds = self._normalize_date(date_str)
         if ds:
             key = f"reservations/{ds}/{slot_id}.json"
@@ -94,6 +102,7 @@ class S3Store:
                 return json.loads(response['Body'].read().decode('utf-8'))
             except ClientError as e:
                 if e.response['Error']['Code'] != 'NoSuchKey':
+                    # (日誌 中文)
                     logger.error(f"讀取預訂資料失敗: {e}")
 
         real_ds = self._find_date_by_slot(slot_id)
@@ -103,30 +112,37 @@ class S3Store:
                 response = self.s3_client.get_object(Bucket=self.bucket_name, Key=key)
                 return json.loads(response['Body'].read().decode('utf-8'))
             except ClientError as e:
+                # (日誌 中文)
                 logger.error(f"讀取預訂資料失敗(跨日期): {e}")
         return None
 
     def delete_reservation(self, slot_id, date_str=None):
         """從 S3 刪除預訂資料 (!!! 已優化：刪除後清除快取 !!!)"""
+        # ... 
         try:
             ds = self._normalize_date(date_str) or self._find_date_by_slot(slot_id)
             if not ds:
+                # (日誌 中文)
                 logger.warning(f"刪除失敗，找不到日期資料夾: slot_id={slot_id}")
                 return False
             key = f"reservations/{ds}/{slot_id}.json"
             self.s3_client.delete_object(Bucket=self.bucket_name, Key=key)
+            # (日誌 中文)
             logger.info(f"預訂資料已刪除: {key}")
             self._clear_all_reservations_cache() # (優化) 清除快取
             return True
         except ClientError as e:
+            # (日誌 中文)
             logger.error(f"刪除預訂資料失敗: {e}")
             return False
 
     def update_reservation(self, slot_id, updated_data, date_str=None):
         """更新預訂資料 (!!! 已優化：更新後清除快取 !!!)"""
+        # ... 
         try:
             existing_data = self.get_reservation(slot_id, date_str)
             if existing_data is None:
+                # (日誌 中文)
                 logger.warning(f"預訂資料不存在，無法更新: {slot_id}")
                 return False
             existing_data.update(updated_data)
@@ -134,6 +150,7 @@ class S3Store:
             # save_reservation 內部會自動清除快取
             return self.save_reservation(slot_id, existing_data, date_str)
         except Exception as e:
+            # (日誌 中文)
             logger.error(f"更新預訂資料失敗: {e}")
             return False
 
@@ -143,10 +160,12 @@ class S3Store:
         (!!! 關鍵優化 !!!)
         獲取所有預訂資料 (帶 5 秒記憶體快取 + Single-Flight 鎖)
         """
+        # ... 
         current_time = time.monotonic()
         
         # 1. 檢查快取是否有效
         if self.all_reservations_expiry > current_time:
+            # (日誌 中文)
             logger.info("從 'all_reservations' 快取提供資料")
             return self.all_reservations_cache
 
@@ -154,10 +173,12 @@ class S3Store:
         with self.all_reservations_lock:
             # 3. 取得鎖後，再次檢查快取 (可能在等待時已被其他執行緒更新)
             if self.all_reservations_expiry > current_time:
+                # (日誌 中文)
                 logger.info("從 'all_reservations' 快取提供資料 (double-check)")
                 return self.all_reservations_cache
             
             # 4. 仍失效，執行昂貴的 S3 查詢
+            # (日誌 中文)
             logger.warning("快取失效！正在執行 S3 'get_all_reservations'...")
             reservations = []
             try:
@@ -178,25 +199,31 @@ class S3Store:
                                     reservation_data = json.loads(obj_response['Body'].read().decode('utf-8'))
                                     reservations.append(reservation_data)
                                 except Exception as e:
+                                    # (日誌 中文)
                                     logger.warning(f"無法讀取預約檔案 {obj['Key']}: {e}")
                 
                 # 5. 儲存到快取
                 self.all_reservations_cache = reservations
                 self.all_reservations_expiry = current_time + self.CACHE_TTL_SECONDS
+                # (日誌 中文)
                 logger.warning(f"S3 'get_all_reservations' 查詢完成，快取 {len(reservations)} 筆資料")
                 return reservations
 
             except ClientError as e:
+                # (日誌 中文)
                 logger.error(f"獲取所有預約失敗: {e}")
                 return [] # 發生錯誤時回傳空列表，但不快取
 
     # -------- 其它原有功能 --------
     def test_connection(self):
+        # ... 
         try:
             self.s3_client.head_bucket(Bucket=self.bucket_name)
+            # (日誌 中文)
             logger.info(f"S3 連線成功: {self.bucket_name}")
             return True
         except ClientError as e:
+            # (日誌 中文)
             logger.error(f"S3 連線失敗: {e}")
             return False
 
@@ -204,6 +231,7 @@ class S3Store:
 
     def get_tables_data(self):
         """(舊) 獲取所有桌位資料 (不含 ETag)"""
+        # ... 
         try:
             response = self.s3_client.get_object(
                 Bucket=self.bucket_name, Key="tables/tables.json"
@@ -211,11 +239,13 @@ class S3Store:
             return json.loads(response['Body'].read().decode('utf-8'))
         except ClientError as e:
             if e.response['Error']['Code'] == 'NoSuchKey': return None
+            # (日誌 中文)
             logger.error(f"獲取桌位資料失敗: {e}")
             return None
 
     def get_tables_data_with_etag(self):
         """(新) 獲取所有桌位資料 (包含 ETag 以供 CAS 使用)"""
+        # ... 
         try:
             response = self.s3_client.get_object(
                 Bucket=self.bucket_name, Key="tables/tables.json"
@@ -225,11 +255,13 @@ class S3Store:
             return data, etag
         except ClientError as e:
             if e.response['Error']['Code'] == 'NoSuchKey': return None, None
+            # (日誌 中文)
             logger.error(f"獲取桌位資料 (含ETag) 失敗: {e}")
             return None, None
 
     def save_tables_data(self, tables_data):
         """(舊) 儲存桌位資料 (不含 CAS)"""
+        # ... 
         try:
             self.s3_client.put_object(
                 Bucket=self.bucket_name, Key="tables/tables.json",
@@ -238,6 +270,7 @@ class S3Store:
             )
             return True
         except ClientError as e:
+            # (日誌 中文)
             logger.error(f"儲存桌位資料失敗: {e}")
             return False
 
@@ -246,18 +279,37 @@ class S3Store:
         (新) 儲存桌位資料 (使用 CAS)
         如果 ETag 不匹配，將會拋出 ClientError (PreconditionFailed)
         """
-        self.s3_client.put_object(
-            Bucket=self.bucket_name,
-            Key="tables/tables.json",
+        #
+        # (!!!) --- 這裡是修正點 --- (!!!)
+        # 
+        # (舊的 - 錯誤的)
+        # self.s3_client.put_object(
+        #     Bucket=self.bucket_name,
+        #     Key="tables/tables.json",
+        #     Body=json.dumps(tables_data, ensure_ascii=False, indent=2),
+        #     ContentType='application/json',
+        #     IfMatch=etag # <--- 這是錯誤的參數
+        # )
+        
+        # (新的 - 正確的)
+        # 我們使用 self.s3_resource (高階) 而不是 self.s3_client (低階)
+        table_object = self.s3_resource.Object(self.bucket_name, "tables/tables.json")
+        table_object.put(
             Body=json.dumps(tables_data, ensure_ascii=False, indent=2),
             ContentType='application/json',
-            IfMatch=etag # (!!! 關鍵的 CAS !!!)
+            IfMatch=etag # <--- 在 s3_resource.Object.put() 上，這是正確的參數
         )
+        
+        # (!!!) --- 修正結束 --- (!!!)
+        #
+        
+        # (日誌 中文)
         logger.info(f"CAS save_tables_data 成功 (ETag: {etag})")
         return True
 
     def reserve_seats_cas(self, table_id, seats_count, retries=3):
         """(新) 原子性預訂座位 (帶重試的 CAS 迴圈)"""
+        # ... 
         table_key = str(table_id)
         for attempt in range(retries):
             try:
@@ -266,31 +318,38 @@ class S3Store:
                 if table_key not in tables_data: return False
                 
                 if tables_data[table_key]["seats_left"] < seats_count:
+                    # (日誌 中文)
                     logger.warning(f"CAS 預訂失敗: 桌號 {table_key} 座位不足")
                     return False
 
                 tables_data[table_key]["seats_left"] -= seats_count
                 self.save_tables_data_cas(tables_data, etag)
+                # (日誌 中文)
                 logger.info(f"CAS 預訂成功: 桌號 {table_key} 減少 {seats_count} 座位")
                 return True # 成功
 
             except ClientError as e:
                 if e.response['Error']['Code'] == 'PreconditionFailed':
+                    # (日誌 中文)
                     logger.warning(f"CAS 預訂衝突 (Attempt {attempt + 1}/{retries})，正在重試...")
                     time.sleep(0.05 * (attempt + 1)) # 退避
                     continue # 重試
                 else:
+                    # (日誌 中文)
                     logger.error(f"CAS 預訂時 S3 錯誤: {e}")
                     return False # 其他 S3 錯誤
             except Exception as e:
+                 # (日誌 中文)
                  logger.error(f"CAS 預訂時未知錯誤: {e}")
                  return False
         
+        # (日誌 中文)
         logger.error(f"CAS 預訂失敗: {retries} 次重試後仍衝突")
         return False # 重試耗盡
 
     def release_seats_cas(self, table_id, seats_count, retries=3):
         """(新) 原子性釋放座位 (帶重試的 CAS 迴圈)"""
+        # ... 
         table_key = str(table_id)
         for attempt in range(retries):
             try:
@@ -305,36 +364,44 @@ class S3Store:
                 tables_data[table_key]["seats_left"] = min(new_seats_left, total_seats)
                 
                 self.save_tables_data_cas(tables_data, etag)
+                # (日誌 中文)
                 logger.info(f"CAS 釋放成功: 桌號 {table_key} 增加 {seats_count} 座位")
                 return True # 成功
 
             except ClientError as e:
                 if e.response['Error']['Code'] == 'PreconditionFailed':
+                    # (日誌 中文)
                     logger.warning(f"CAS 釋放衝突 (Attempt {attempt + 1}/{retries})，正在重試...")
                     time.sleep(0.05 * (attempt + 1)) # 退避
                     continue # 重試
                 else:
+                    # (日誌 中文)
                     logger.error(f"CAS 釋放時 S3 錯誤: {e}")
                     return False
             except Exception as e:
+                 # (日誌 中文)
                  logger.error(f"CAS 釋放時未知錯誤: {e}")
                  return False
         
+        # (日誌 中文)
         logger.error(f"CAS 釋放失敗: {retries} 次重試後仍衝突")
         return False
 
     def check_login_id_exists(self, login_id):
         """(!!! 已優化 !!!) 檢查 login_id 是否已存在 (受益於快取)"""
+        # ... 
         try:
             # (優化) 這裡會呼叫帶快取的 get_all_reservations
             reservations = self.get_all_reservations() 
             return any(r.get("login_id", "").lower() == login_id.lower() for r in reservations)
         except Exception as e:
+            # (日誌 中文)
             logger.error(f"檢查 login_id 失敗: {e}")
             return False # 發生錯誤時，保守地假設不存在
 
     # -------- 防重複提交 (保持不變) --------
     def save_idempotency_key(self, key, data):
+        # ... 
         try:
             self.s3_client.put_object(
                 Bucket=self.bucket_name, Key=f"idempotency/{key}.json",
@@ -343,10 +410,12 @@ class S3Store:
             )
             return True
         except ClientError as e:
+            # (日誌 中文)
             logger.error(f"儲存防重複鍵失敗: {e}")
             return False
 
     def get_idempotency_key(self, key):
+        # ... 
         try:
             response = self.s3_client.get_object(
                 Bucket=self.bucket_name, Key=f"idempotency/{key}.json"
@@ -354,5 +423,6 @@ class S3Store:
             return json.loads(response['Body'].read().decode('utf-8'))
         except ClientError as e:
             if e.response['Error']['Code'] == 'NoSuchKey': return None
+            # (日誌 中文)
             logger.error(f"獲取防重複鍵失敗: {e}")
             return None
