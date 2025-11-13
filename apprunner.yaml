@@ -3,11 +3,12 @@ runtime: python311
 build:
   commands:
     build:
-      - echo "Installing dependencies"
-      - pip3 install pipenv
-      - pipenv install
+      - echo "Build ..."
 run:
   runtime-version: 3.11
+  pre-run:
+    - pip3 install pipenv
+    - pipenv install
   command: python3 app.py
   network:
     port: 8080
