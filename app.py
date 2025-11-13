@@ -611,5 +611,5 @@ if __name__ == "__main__":
         print(f"[WARN] init_tables skipped: {e}")
 
     print(f"[INFO] Admin authentication: {'ENABLED' if ENABLE_ADMIN_AUTH else 'DISABLED'}")
-    port = int(os.getenv("PORT", 8000))
+    port = int(os.getenv("PORT", 8080))
     app.run(host="0.0.0.0", port=port, debug=False)

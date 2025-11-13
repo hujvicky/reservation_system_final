@@ -9,7 +9,7 @@ run:
   runtime-version: 3.11
   command: python3 app.py
   network:
-    port: 8000
+    port: 8080
   env:
     - name: S3_BUCKET_NAME
       value: "seat-reservation-data-2025"
