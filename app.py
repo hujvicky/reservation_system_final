@@ -612,4 +612,4 @@ if __name__ == "__main__":
 
     print(f"[INFO] Admin authentication: {'ENABLED' if ENABLE_ADMIN_AUTH else 'DISABLED'}")
     port = int(os.getenv("PORT", 8080))
-    app.run(host="0.0.0.0", port=port, debug=False)
+    app.run(host="0.0.0.0", port=8080, debug=False)
