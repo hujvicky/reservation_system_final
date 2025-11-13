@@ -157,8 +157,7 @@
 
     // 全域變數，用來儲存訂位名單
     let reservationDetails = {};
-    // (1) 在這裡設定你想要永久禁用的桌號
-    const DISABLED_TABLES = [85, 86, 87, 97, 98, 99];
+    
 
     // === 桌位群組定義 ===
   const groupConfig = {
@@ -358,6 +357,9 @@
       // (安全) 這裡的檢查會防止 'status-disabled' 的桌子被點擊
       if(!card || card.classList.contains('status-disabled')) return; 
       const tableId=Number(card.dataset.tableId);
+      // 加入排除名單：這些 ID 不開啟 modal
+      const blockedIds = [85, 86, 87, 97, 98, 99];
+      if (blockedIds.includes(tableId)) return;
       openModal(tableId);
     });
 
