@@ -4,10 +4,10 @@ build:
   commands:
     build:
       - echo "Installing dependencies"
-      - pip install -r requirements.txt
+      - pip3 install -r requirements.txt
 run:
   runtime-version: 3.11
-  command: python app.py
+  command: python3 app.py
   network:
     port: 8000
   env:
