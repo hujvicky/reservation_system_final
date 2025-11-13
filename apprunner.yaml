@@ -23,8 +23,8 @@ run:
     
     # DynamoDB table names
     - name: RESERVATIONS_TABLE
-      value: "seat-reservations"
+      value: "seat-reservations-staging"
     - name: TABLES_TABLE
-      value: "seat-tables"
+      value: "seat-tables-staging"
     - name: IDEMPOTENCY_TABLE
-      value: "seat-idempotency"
+      value: "seat-idempotency-staging"
