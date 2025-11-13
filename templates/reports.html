@@ -19,6 +19,8 @@
         </a>
         <h1 class="text-3xl font-bold">Reservations Records</h1>
       </div>
+      <!-- (新) 增加登出按鈕 -->
+      <a href="/login.html" id="logout-btn" class="px-3 py-2 rounded bg-red-500 text-white hover:bg-red-600">Logout</a>
     </div>
 
     <form id="filter" class="flex flex-wrap items-end gap-3 mb-4">
@@ -47,10 +49,32 @@
   </div>
 
   <script>
+    
+    // (!!! 修正 1：加入驗證機制 !!!)
+    const adminToken = localStorage.getItem('adminToken');
+    if (!adminToken) {
+        alert('Authentication required. Redirecting to login page.');
+        window.location.href = '/login.html';
+    }
+    
+    // (新) 登出按鈕
+    document.getElementById('logout-btn').addEventListener('click', (e) => {
+        e.preventDefault();
+        localStorage.removeItem('adminToken');
+        window.location.href = '/login.html';
+    });
+
+    // (新) 輔助函數：取得 Auth 標頭
+    function getAuthHeaders() {
+        return {
+            'Authorization': `Bearer ${adminToken}`,
+            'Content-Type': 'application/json'
+        };
+    }
 
     function fmtTW(isoString){
       try {
-        return new Date(isoString).toLocaleString('zh-TW', { // 將 en-US 改為 zh-TW 或保留 en-US
+        return new Date(isoString).toLocaleString('zh-TW', {
           timeZone: 'Asia/Taipei',
           year: 'numeric',
           month: '2-digit',
@@ -70,16 +94,24 @@
         const table = document.getElementById('f-table').value;
         const qs = new URLSearchParams();
         if(table) qs.set('table_id', table);
-        const r = await fetch('/api/reservations?' + qs.toString());
+        
+        // (!!! 修正 2：在 fetch 中加入 headers !!!)
+        const r = await fetch('/api/reservations?' + qs.toString(), {
+            headers: getAuthHeaders() // <-- 修正點
+        });
         
         if (!r.ok) {
+          // (新) 增強 401 錯誤處理
+          if (r.status === 401 || r.status === 403) {
+              localStorage.removeItem('adminToken');
+              alert('Authentication failed or token expired. Please log in again.');
+              window.location.href = '/login.html';
+              return;
+          }
           throw new Error(`HTTP ${r.status}: ${r.statusText}`);
         }
         
         const { data } = await r.json();
-
-        // 🚨 修正點：reports.html 沒有 id="title" 元素，因此移除這行程式碼
-        // document.getElementById('title').textContent = `Reservation Records (Total: ${data.length})`; 
 
         if (data.length === 0) {
             document.getElementById('rows').innerHTML = `
@@ -105,7 +137,6 @@
 
       } catch (error) {
         console.error('載入資料失敗:', error);
-        // 將錯誤訊息顯示在表格內
         document.getElementById('rows').innerHTML = `
           <tr>
             <td colspan="6" class="p-4 text-center text-red-600">
