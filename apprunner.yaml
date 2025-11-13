@@ -1,12 +1,12 @@
 version: 1.0
-runtime: python311
+runtime: python3
 build:
   commands:
     build:
       - echo "Installing dependencies"
       - pip3 install -r requirements.txt
 run:
-  runtime-version: 3.11
+  runtime-version: 3.10
   command: python3 app.py
   network:
     port: 8080
