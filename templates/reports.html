@@ -29,6 +29,46 @@
       <button type="submit" class="bg-indigo-600 text-white px-4 py-2 rounded hover:bg-indigo-700">Search</button>
     </form>
 
+    <!-- Loading Indicator -->
+    <div id="loading" class="hidden text-center py-8">
+      <div class="inline-flex items-center gap-2 text-gray-600">
+        <svg class="animate-spin h-5 w-5" xmlns="http://www.w3.org/2000/svg" fill="none" viewBox="0 0 24 24">
+          <circle class="opacity-25" cx="12" cy="12" r="10" stroke="currentColor" stroke-width="4"></circle>
+          <path class="opacity-75" fill="currentColor" d="M4 12a8 8 0 018-8V0C5.373 0 0 5.373 0 12h4zm2 5.291A7.962 7.962 0 014 12H0c0 3.042 1.135 5.824 3 7.938l3-2.647z"></path>
+        </svg>
+        Loading reservations...
+      </div>
+    </div>
+
+    <!-- Pagination Controls -->
+    <div class="mb-4 flex items-center justify-between bg-white border border-gray-200 rounded px-4 py-3 shadow-sm">
+      <div class="flex items-center gap-4">
+        <span id="pagination-info" class="text-sm text-gray-700">
+          Showing 0 - 0 of 0 records
+        </span>
+      </div>
+      
+      <div class="flex items-center gap-2">
+        <button id="first-btn" class="px-3 py-1 text-sm border rounded hover:bg-gray-50 disabled:opacity-50 disabled:cursor-not-allowed" disabled>
+          First
+        </button>
+        <button id="prev-btn" class="px-3 py-1 text-sm border rounded hover:bg-gray-50 disabled:opacity-50 disabled:cursor-not-allowed" disabled>
+          ← Previous
+        </button>
+        
+        <div id="page-numbers" class="flex items-center gap-1 mx-2">
+          <!-- Page numbers will be inserted here -->
+        </div>
+        
+        <button id="next-btn" class="px-3 py-1 text-sm border rounded hover:bg-gray-50 disabled:opacity-50 disabled:cursor-not-allowed" disabled>
+          Next →
+        </button>
+        <button id="last-btn" class="px-3 py-1 text-sm border rounded hover:bg-gray-50 disabled:opacity-50 disabled:cursor-not-allowed" disabled>
+          Last
+        </button>
+      </div>
+    </div>
+
     <div class="overflow-x-auto bg-white border border-gray-200 rounded shadow-sm">
       <table class="w-full text-sm">
         <thead class="bg-gray-100">
@@ -47,10 +87,16 @@
   </div>
 
   <script>
+    // Pagination state
+    let currentPage = 1;
+    let pageSize = 50;
+    let totalRecords = 0;
+    let totalPages = 0;
+
 
     function fmtTW(isoString){
       try {
-        return new Date(isoString).toLocaleString('zh-TW', { // 將 en-US 改為 zh-TW 或保留 en-US
+        return new Date(isoString).toLocaleString('zh-TW', {
           timeZone: 'Asia/Taipei',
           year: 'numeric',
           month: '2-digit',
@@ -65,47 +111,149 @@
       }
     }
 
-    async function load(){
+    // Show/hide loading indicator
+    function setLoading(isLoading) {
+      const loading = document.getElementById('loading');
+      const table = document.querySelector('.overflow-x-auto');
+      
+      if (isLoading) {
+        loading.classList.remove('hidden');
+        table.classList.add('opacity-50');
+      } else {
+        loading.classList.add('hidden');
+        table.classList.remove('opacity-50');
+      }
+    }
+
+    // Update pagination info display
+    function updatePaginationInfo() {
+      const info = document.getElementById('pagination-info');
+      const start = totalRecords === 0 ? 0 : (currentPage - 1) * pageSize + 1;
+      const end = Math.min(currentPage * pageSize, totalRecords);
+      
+      info.textContent = `Showing ${start} - ${end} of ${totalRecords} records`;
+    }
+
+    // Generate page numbers for pagination
+    function generatePageNumbers() {
+      const container = document.getElementById('page-numbers');
+      container.innerHTML = '';
+      
+      if (totalPages <= 1) return;
+      
+      // Calculate page range to show
+      const maxPagesToShow = 5;
+      let startPage = Math.max(1, currentPage - Math.floor(maxPagesToShow / 2));
+      let endPage = Math.min(totalPages, startPage + maxPagesToShow - 1);
+      
+      // Adjust start if we're near the end
+      if (endPage - startPage < maxPagesToShow - 1) {
+        startPage = Math.max(1, endPage - maxPagesToShow + 1);
+      }
+      
+      // Add page buttons
+      for (let i = startPage; i <= endPage; i++) {
+        const btn = document.createElement('button');
+        btn.textContent = i;
+        btn.className = `px-3 py-1 text-sm border rounded ${
+          i === currentPage 
+            ? 'bg-indigo-600 text-white border-indigo-600' 
+            : 'hover:bg-gray-50'
+        }`;
+        
+        if (i !== currentPage) {
+          btn.onclick = () => loadPage(i);
+        }
+        
+        container.appendChild(btn);
+      }
+    }
+
+    // Update pagination controls state
+    function updatePaginationControls() {
+      const firstBtn = document.getElementById('first-btn');
+      const prevBtn = document.getElementById('prev-btn');
+      const nextBtn = document.getElementById('next-btn');
+      const lastBtn = document.getElementById('last-btn');
+      
+      // Disable/enable buttons based on current page
+      const isFirstPage = currentPage <= 1;
+      const isLastPage = currentPage >= totalPages;
+      
+      firstBtn.disabled = isFirstPage;
+      prevBtn.disabled = isFirstPage;
+      nextBtn.disabled = isLastPage;
+      lastBtn.disabled = isLastPage;
+      
+      updatePaginationInfo();
+      generatePageNumbers();
+    }
+
+    // Load specific page
+    async function loadPage(page) {
+      if (page < 1 || page > totalPages) return;
+      currentPage = page;
+      await load();
+    }
+
+    // Main load function with pagination
+    async function load() {
       try {
+        setLoading(true);
+        
         const table = document.getElementById('f-table').value;
+        
+        // Build query parameters
         const qs = new URLSearchParams();
-        if(table) qs.set('table_id', table);
-        const r = await fetch('/api/reservations?' + qs.toString());
+        if (table) qs.set('table_id', table);
+        qs.set('page', currentPage.toString());
+        qs.set('page_size', pageSize.toString());
         
-        if (!r.ok) {
-          throw new Error(`HTTP ${r.status}: ${r.statusText}`);
+        const response = await fetch('/api/reservations?' + qs.toString());
+        
+        if (!response.ok) {
+          throw new Error(`HTTP ${response.status}: ${response.statusText}`);
         }
         
-        const { data } = await r.json();
-
-        // 🚨 修正點：reports.html 沒有 id="title" 元素，因此移除這行程式碼
-        // document.getElementById('title').textContent = `Reservation Records (Total: ${data.length})`; 
-
+        const result = await response.json();
+        const { data, total, page, page_size } = result;
+        
+        // Update pagination state
+        totalRecords = total;
+        currentPage = page;
+        pageSize = page_size;
+        totalPages = Math.ceil(total / page_size);
+        
+        // Update table content
         if (data.length === 0) {
-            document.getElementById('rows').innerHTML = `
-                <tr>
-                    <td colspan="6" class="p-4 text-center text-gray-500">
-                        No reservation data found. Try making a reservation first.
-                    </td>
-                </tr>
-            `;
-            return;
+          document.getElementById('rows').innerHTML = `
+            <tr>
+              <td colspan="6" class="p-4 text-center text-gray-500">
+                ${total === 0 
+                  ? 'No reservation data found. Try making a reservation first.' 
+                  : 'No data found for this page.'}
+              </td>
+            </tr>
+          `;
+        } else {
+          document.getElementById('rows').innerHTML = data.map((d, idx) => `
+            <tr class="hover:bg-gray-50">
+              <td class="p-2 border font-mono text-xs text-gray-700">${d.id.slice(0,8)}</td>
+              <td class="p-2 border text-gray-800">Table ${d.table_id}</td>
+              <td class="p-2 border">${d.seats_taken}</td>
+              <td class="p-2 border">${d.employee_name}</td>
+              <td class="p-2 border">${d.login_id}</td>
+              <td class="p-2 border text-gray-600">${fmtTW(d.created_at)}</td>
+            </tr>
+          `).join('');
         }
-
-        document.getElementById('rows').innerHTML = data.map((d, idx) => `
-          <tr class="hover:bg-gray-50">
-            <td class="p-2 border font-mono text-xs text-gray-700">${d.id.slice(0,8)}</td>
-            <td class="p-2 border text-gray-800">Table ${d.table_id}</td>
-            <td class="p-2 border">${d.seats_taken}</td>
-            <td class="p-2 border">${d.employee_name}</td>
-            <td class="p-2 border">${d.login_id}</td>
-            <td class="p-2 border text-gray-600">${fmtTW(d.created_at)}</td>
-          </tr>
-        `).join('');
-
+        
+        // Update pagination controls
+        updatePaginationControls();
+        
       } catch (error) {
         console.error('載入資料失敗:', error);
-        // 將錯誤訊息顯示在表格內
+        
         document.getElementById('rows').innerHTML = `
           <tr>
             <td colspan="6" class="p-4 text-center text-red-600">
@@ -113,14 +261,31 @@
             </td>
           </tr>
         `;
+        
+        // Reset pagination state on error
+        totalRecords = 0;
+        totalPages = 0;
+        updatePaginationControls();
+        
+      } finally {
+        setLoading(false);
       }
-    } 
+    }
 
+    // Event listeners
     document.getElementById('filter').addEventListener('submit', e => { 
       e.preventDefault(); 
+      currentPage = 1; // Reset to first page when searching
       load(); 
     });
 
+    // Pagination button handlers
+    document.getElementById('first-btn').addEventListener('click', () => loadPage(1));
+    document.getElementById('prev-btn').addEventListener('click', () => loadPage(currentPage - 1));
+    document.getElementById('next-btn').addEventListener('click', () => loadPage(currentPage + 1));
+    document.getElementById('last-btn').addEventListener('click', () => loadPage(totalPages));
+
+    // Initialize - page size is fixed at 50
     load();
   </script>
 </body>

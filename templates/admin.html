@@ -26,6 +26,47 @@
 
     <div class="bg-white rounded-xl shadow p-4">
       <div class="text-lg font-semibold mb-3" id="title">Reservation Records</div>
+      
+      <!-- Loading Indicator -->
+      <div id="loading" class="hidden text-center py-8">
+        <div class="inline-flex items-center gap-2 text-gray-600">
+          <svg class="animate-spin h-5 w-5" xmlns="http://www.w3.org/2000/svg" fill="none" viewBox="0 0 24 24">
+            <circle class="opacity-25" cx="12" cy="12" r="10" stroke="currentColor" stroke-width="4"></circle>
+            <path class="opacity-75" fill="currentColor" d="M4 12a8 8 0 018-8V0C5.373 0 0 5.373 0 12h4zm2 5.291A7.962 7.962 0 014 12H0c0 3.042 1.135 5.824 3 7.938l3-2.647z"></path>
+          </svg>
+          Loading reservations...
+        </div>
+      </div>
+
+      <!-- Pagination Controls -->
+      <div class="mb-4 flex items-center justify-between bg-white border border-gray-200 rounded px-4 py-3 shadow-sm">
+        <div class="flex items-center gap-4">
+          <span id="pagination-info" class="text-sm text-gray-700">
+            Showing 0 - 0 of 0 records
+          </span>
+        </div>
+        
+        <div class="flex items-center gap-2">
+          <button id="first-btn" class="px-3 py-1 text-sm border rounded hover:bg-gray-50 disabled:opacity-50 disabled:cursor-not-allowed" disabled>
+            First
+          </button>
+          <button id="prev-btn" class="px-3 py-1 text-sm border rounded hover:bg-gray-50 disabled:opacity-50 disabled:cursor-not-allowed" disabled>
+            ← Previous
+          </button>
+          
+          <div id="page-numbers" class="flex items-center gap-1 mx-2">
+            <!-- Page numbers will be inserted here -->
+          </div>
+          
+          <button id="next-btn" class="px-3 py-1 text-sm border rounded hover:bg-gray-50 disabled:opacity-50 disabled:cursor-not-allowed" disabled>
+            Next →
+          </button>
+          <button id="last-btn" class="px-3 py-1 text-sm border rounded hover:bg-gray-50 disabled:opacity-50 disabled:cursor-not-allowed" disabled>
+            Last
+          </button>
+        </div>
+      </div>
+
       <div class="overflow-x-auto bg-white border border-gray-200 rounded shadow-sm">
         <table class="w-full text-sm">
           <thead class="bg-gray-100">
@@ -48,6 +89,12 @@
   <script>
     const ADMIN_HTML_VERSION = "3.0-fix-delete-bug"; // <-- 版本號
     console.log("Admin HTML Version:", ADMIN_HTML_VERSION);
+
+    // Pagination state
+    let currentPage = 1;
+    let pageSize = 50;
+    let totalRecords = 0;
+    let totalPages = 0;
 
     function fmtTableId(n){ return 'T' + String(n).padStart(3,'0'); }
 
@@ -86,6 +133,91 @@
         headers['Content-Type'] = 'application/json';
       }
       return headers;
+    }
+
+    // Show/hide loading indicator
+    function setLoading(isLoading) {
+      const loading = document.getElementById('loading');
+      const table = document.querySelector('.overflow-x-auto');
+      
+      if (isLoading) {
+        loading.classList.remove('hidden');
+        table.classList.add('opacity-50');
+      } else {
+        loading.classList.add('hidden');
+        table.classList.remove('opacity-50');
+      }
+    }
+
+    // Update pagination info display
+    function updatePaginationInfo() {
+      const info = document.getElementById('pagination-info');
+      const start = totalRecords === 0 ? 0 : (currentPage - 1) * pageSize + 1;
+      const end = Math.min(currentPage * pageSize, totalRecords);
+      
+      info.textContent = `Showing ${start} - ${end} of ${totalRecords} records`;
+    }
+
+    // Generate page numbers for pagination
+    function generatePageNumbers() {
+      const container = document.getElementById('page-numbers');
+      container.innerHTML = '';
+      
+      if (totalPages <= 1) return;
+      
+      // Calculate page range to show
+      const maxPagesToShow = 5;
+      let startPage = Math.max(1, currentPage - Math.floor(maxPagesToShow / 2));
+      let endPage = Math.min(totalPages, startPage + maxPagesToShow - 1);
+      
+      // Adjust start if we're near the end
+      if (endPage - startPage < maxPagesToShow - 1) {
+        startPage = Math.max(1, endPage - maxPagesToShow + 1);
+      }
+      
+      // Add page buttons
+      for (let i = startPage; i <= endPage; i++) {
+        const btn = document.createElement('button');
+        btn.textContent = i;
+        btn.className = `px-3 py-1 text-sm border rounded ${
+          i === currentPage 
+            ? 'bg-indigo-600 text-white border-indigo-600' 
+            : 'hover:bg-gray-50'
+        }`;
+        
+        if (i !== currentPage) {
+          btn.onclick = () => loadPage(i);
+        }
+        
+        container.appendChild(btn);
+      }
+    }
+
+    // Update pagination controls state
+    function updatePaginationControls() {
+      const firstBtn = document.getElementById('first-btn');
+      const prevBtn = document.getElementById('prev-btn');
+      const nextBtn = document.getElementById('next-btn');
+      const lastBtn = document.getElementById('last-btn');
+      
+      // Disable/enable buttons based on current page
+      const isFirstPage = currentPage <= 1;
+      const isLastPage = currentPage >= totalPages;
+      
+      firstBtn.disabled = isFirstPage;
+      prevBtn.disabled = isFirstPage;
+      nextBtn.disabled = isLastPage;
+      lastBtn.disabled = isLastPage;
+      
+      updatePaginationInfo();
+      generatePageNumbers();
+    }
+
+    // Load specific page
+    async function loadPage(page) {
+      if (page < 1 || page > totalPages) return;
+      currentPage = page;
+      await load();
     }
 
     // 幫 CSV 匯出按鈕加上 Token
@@ -132,19 +264,20 @@
       }
     });
 
-    // === 載入資料 ===
+    // === 載入資料 with Pagination ===
     async function load(){
-      let data = [];
       const rowsEl = document.getElementById('rows');
       const titleEl = document.getElementById('title');
 
       try {
-        // 1. 執行 API 請求 (加上 headers)
-        const r = await fetch('/api/reservations?page=1&page_size=500', {
-          headers: getAuthHeaders(false) // 使用 GET headers
+        setLoading(true);
+
+        // 1. 執行 API 請求 with pagination
+        const r = await fetch(`/api/reservations?page=${currentPage}&page_size=${pageSize}`, {
+          headers: getAuthHeaders(false)
         });
 
-        // 2. 檢查 HTTP 狀態碼 (HTTP status code)
+        // 2. 檢查 HTTP 狀態碼
         if (!r.ok) {
           if (r.status === 401 || r.status === 403) {
             throw new Error(`Authentication Failed (HTTP ${r.status}). Token might be expired. Redirecting to login...`);
@@ -154,19 +287,28 @@
 
         // 3. 解析數據
         const jsonResponse = await r.json();
-        data = jsonResponse.data;
+        const { data, total, page, page_size } = jsonResponse;
 
-        // 4. 更新標題和表格
-        titleEl.textContent = `Reservation Records (Total: ${data.length})`;
+        // Update pagination state
+        totalRecords = total;
+        currentPage = page;
+        pageSize = page_size;
+        totalPages = Math.ceil(total / page_size);
+
+        // 4. 更新標題
+        titleEl.textContent = `Reservation Records (Total: ${total})`;
 
         if (data.length === 0) {
           rowsEl.innerHTML = `
             <tr>
               <td colspan="7" class="p-4 text-center text-gray-500">
-                No reservation data found.
+                ${total === 0 
+                  ? 'No reservation data found.' 
+                  : 'No data found for this page.'}
               </td>
             </tr>
           `;
+          updatePaginationControls();
           return;
         }
 
@@ -208,101 +350,11 @@
         }).join('');
         rowsEl.innerHTML = rows;
 
+        // Update pagination controls
+        updatePaginationControls();
+
         // 5. 綁定事件監聽器
-        
-        // (MODIFIED) Update Button Listener
-        document.querySelectorAll('[data-update]').forEach(btn => {
-          btn.addEventListener('click', async () => {
-            const id = btn.getAttribute('data-update');
-            
-            const loginInput = document.querySelector(`[data-input-login="${id}"]`);
-            const nameInput = document.querySelector(`[data-input-name="${id}"]`);
-            const seatsInput = document.querySelector(`[data-input-seats="${id}"]`); // (NEW)
-            
-            const newLogin = loginInput.value.trim();
-            const newName = nameInput.value.trim();
-            const newSeats = Number(seatsInput.value); // (NEW)
-            
-            if (!newLogin || !newName) {
-              alert('Login ID and Employee Name cannot be empty.');
-              return;
-            }
-
-            if (!confirm(`Are you sure you want to update this reservation?\n\nLogin ID: ${newLogin}\nName: ${newName}\nSeats: ${newSeats}`)) {
-              return;
-            }
-            
-            try {
-              const res = await fetch('/api/admin/update_reservation', {
-                method: 'POST',
-                headers: getAuthHeaders(true),
-                body: JSON.stringify({ // (MODIFIED) 傳送所有資料
-                  reservation_id: id,
-                  login_id: newLogin,
-                  employee_name: newName,
-                  seats_taken: newSeats
-                })
-              });
-              
-              const data = await res.json();
-              
-              if (res.ok && data.success) {
-                alert('Reservation updated successfully!');
-                loginInput.style.backgroundColor = '#d1fae5'; // 成功後變綠色
-                nameInput.style.backgroundColor = '#d1fae5';
-                seatsInput.style.backgroundColor = '#d1fae5';
-                setTimeout(() => { // 1秒後移除綠色
-                   loginInput.style.backgroundColor = '';
-                   nameInput.style.backgroundColor = '';
-                   seatsInput.style.backgroundColor = '';
-                }, 1500);
-                // 成功後重新載入，以確保 seats_left 總數正確
-                load();
-              } else {
-                alert(`Update Failed: ${data.message || 'Unknown error'}`);
-                loginInput.style.backgroundColor = '#fee2e2'; // 失敗後變紅色
-                nameInput.style.backgroundColor = '#fee2e2';
-                seatsInput.style.backgroundColor = '#fee2e2';
-                setTimeout(() => { // 1秒後移除紅色
-                   loginInput.style.backgroundColor = '';
-                   nameInput.style.backgroundColor = '';
-                   seatsInput.style.backgroundColor = '';
-                }, 1500);
-              }
-            } catch (err) {
-              alert('An error occurred: ' + err.message);
-            }
-          });
-        });
-
-        // Cancel Button Listener (已修正)
-        document.querySelectorAll('[data-cancel]').forEach(btn=>{
-          btn.addEventListener('click', async ()=>{
-            const id = btn.getAttribute('data-cancel');
-            if(!confirm('Cancel this reservation entirely?')) return;
-            
-            try {
-              const response = await fetch('/api/cancel', {
-                method:'POST', 
-                headers: getAuthHeaders(true),
-                body: JSON.stringify({reservation_id:id})
-              });
-              
-              if (response.ok) { 
-                alert('Reservation cancelled successfully!');
-                load(); // 取消成功後，重新載入
-              } else { 
-                const errData = await response.json();
-                alert(`Failed to cancel: ${errData.message || 'Unknown error'}`); 
-              }
-            } catch (err) {
-              alert('Error: ' + err.message);
-            }
-          });
-        });
-        
-        // (REMOVED) Reduce Button Listener
-        // ... (已刪除) ...
+        bindEventListeners();
 
       } catch (error) {
         // 6. 處理錯誤
@@ -322,8 +374,117 @@
             </td>
           </tr>
         `;
+
+        // Reset pagination state on error
+        totalRecords = 0;
+        totalPages = 0;
+        updatePaginationControls();
+
+      } finally {
+        setLoading(false);
       }
     }
+
+    // Bind event listeners for table buttons
+    function bindEventListeners() {
+      // (MODIFIED) Update Button Listener
+      document.querySelectorAll('[data-update]').forEach(btn => {
+        btn.addEventListener('click', async () => {
+          const id = btn.getAttribute('data-update');
+          
+          const loginInput = document.querySelector(`[data-input-login="${id}"]`);
+          const nameInput = document.querySelector(`[data-input-name="${id}"]`);
+          const seatsInput = document.querySelector(`[data-input-seats="${id}"]`);
+          
+          const newLogin = loginInput.value.trim();
+          const newName = nameInput.value.trim();
+          const newSeats = Number(seatsInput.value);
+          
+          if (!newLogin || !newName) {
+            alert('Login ID and Employee Name cannot be empty.');
+            return;
+          }
+
+          if (!confirm(`Are you sure you want to update this reservation?\n\nLogin ID: ${newLogin}\nName: ${newName}\nSeats: ${newSeats}`)) {
+            return;
+          }
+          
+          try {
+            const res = await fetch('/api/admin/update_reservation', {
+              method: 'POST',
+              headers: getAuthHeaders(true),
+              body: JSON.stringify({
+                reservation_id: id,
+                login_id: newLogin,
+                employee_name: newName,
+                seats_taken: newSeats
+              })
+            });
+            
+            const data = await res.json();
+            
+            if (res.ok && data.success) {
+              alert('Reservation updated successfully!');
+              loginInput.style.backgroundColor = '#d1fae5';
+              nameInput.style.backgroundColor = '#d1fae5';
+              seatsInput.style.backgroundColor = '#d1fae5';
+              setTimeout(() => {
+                 loginInput.style.backgroundColor = '';
+                 nameInput.style.backgroundColor = '';
+                 seatsInput.style.backgroundColor = '';
+              }, 1500);
+              load(); // Reload current page
+            } else {
+              alert(`Update Failed: ${data.message || 'Unknown error'}`);
+              loginInput.style.backgroundColor = '#fee2e2';
+              nameInput.style.backgroundColor = '#fee2e2';
+              seatsInput.style.backgroundColor = '#fee2e2';
+              setTimeout(() => {
+                 loginInput.style.backgroundColor = '';
+                 nameInput.style.backgroundColor = '';
+                 seatsInput.style.backgroundColor = '';
+              }, 1500);
+            }
+          } catch (err) {
+            alert('An error occurred: ' + err.message);
+          }
+        });
+      });
+
+      // Cancel Button Listener
+      document.querySelectorAll('[data-cancel]').forEach(btn=>{
+        btn.addEventListener('click', async ()=>{
+          const id = btn.getAttribute('data-cancel');
+          if(!confirm('Cancel this reservation entirely?')) return;
+          
+          try {
+            const response = await fetch('/api/cancel', {
+              method:'POST', 
+              headers: getAuthHeaders(true),
+              body: JSON.stringify({reservation_id:id})
+            });
+            
+            if (response.ok) { 
+              alert('Reservation cancelled successfully!');
+              load(); // Reload current page
+            } else { 
+              const errData = await response.json();
+              alert(`Failed to cancel: ${errData.message || 'Unknown error'}`); 
+            }
+          } catch (err) {
+            alert('Error: ' + err.message);
+          }
+        });
+      });
+    }
+
+    // Pagination button handlers
+    document.getElementById('first-btn').addEventListener('click', () => loadPage(1));
+    document.getElementById('prev-btn').addEventListener('click', () => loadPage(currentPage - 1));
+    document.getElementById('next-btn').addEventListener('click', () => loadPage(currentPage + 1));
+    document.getElementById('last-btn').addEventListener('click', () => loadPage(totalPages));
+
+    // Initialize
     load();
   </script>
 </body>

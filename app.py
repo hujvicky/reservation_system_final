@@ -338,23 +338,67 @@ def list_reservations():
     size = min(100, max(1, request.args.get("page_size", default=50, type=int)))
 
     try:
-        # 獲取所有預約
-        all_reservations = store.get_all_reservations()
-        store_type = "DynamoDB" if USE_DYNAMODB else "S3"
-        print(f"[DEBUG] Found {len(all_reservations)} reservations in {store_type}")
+        # 如果使用DynamoDB，使用高效分頁
+        if USE_DYNAMODB and hasattr(store, 'get_reservations_paginated'):
+            # 獲取總數（用於分頁計算）
+            total = store.get_reservations_count(table_id_filter=table_id)
+            
+            # 對於頁碼式分頁，我們需要模擬跳轉到指定頁面
+            # 注意：這仍然需要掃描前面的頁面，但比加載所有數據要好
+            skip_items = (page - 1) * size
+            collected_items = []
+            last_key = None
+            
+            # 如果要跳轉到後面的頁面，需要掃描前面的數據
+            items_collected = 0
+            while items_collected < skip_items + size:
+                # 每次獲取更多數據以減少往返次數
+                fetch_size = min(size * 3, 100)  # 一次獲取更多數據
+                result = store.get_reservations_paginated(
+                    limit=fetch_size, 
+                    last_key=last_key, 
+                    table_id_filter=table_id
+                )
+                
+                if not result['items']:
+                    break
+                    
+                collected_items.extend(result['items'])
+                items_collected += len(result['items'])
+                last_key = result['last_key']
+                
+                if not result['has_more']:
+                    break
+            
+            # 排序（最新的在前）
+            collected_items.sort(key=lambda x: x.get("created_at", ""), reverse=True)
+            
+            # 取得所需頁面的數據
+            start_idx = skip_items
+            end_idx = start_idx + size
+            data = collected_items[start_idx:end_idx]
+            
+            store_type = "DynamoDB (Native Pagination)"
+            print(f"[DEBUG] Found {len(data)} reservations in {store_type} for page {page}")
+            
+        else:
+            # 舊版邏輯（S3或不支持分頁的情況）
+            all_reservations = store.get_all_reservations()
+            store_type = "S3" if not USE_DYNAMODB else "DynamoDB (Legacy)"
+            print(f"[DEBUG] Found {len(all_reservations)} reservations in {store_type}")
 
-        # 過濾條件
-        if table_id:
-            all_reservations = [r for r in all_reservations if r.get("table_id") == table_id]
+            # 過濾條件
+            if table_id:
+                all_reservations = [r for r in all_reservations if r.get("table_id") == table_id]
 
-        # 排序（最新的在前）
-        all_reservations.sort(key=lambda x: x.get("created_at", ""), reverse=True)
+            # 排序（最新的在前）
+            all_reservations.sort(key=lambda x: x.get("created_at", ""), reverse=True)
 
-        # 分頁
-        total = len(all_reservations)
-        start = (page - 1) * size
-        end = start + size
-        data = all_reservations[start:end]
+            # 分頁
+            total = len(all_reservations)
+            start = (page - 1) * size
+            end = start + size
+            data = all_reservations[start:end]
 
         return jsonify({
             "data": data,
