@@ -224,7 +224,7 @@
 
     // updateCounts (Translated)
     async function updateCounts(){
-      showMessage('Loading latest seat status...', 'info'); 
+      showMessage('Loading latest seat status...', 'info'); // (UI 英文)
       try{
         const r=await fetch('/api/status');
         if(!r.ok) {
@@ -246,12 +246,12 @@
         });
 
         reservationDetails = newDetails;
-        showMessage('Seat status updated.', 'success'); 
+        showMessage('Seat status updated.', 'success'); // (UI 英文)
         setTimeout(() => showMessage(''), 2000); // Clear message after 2s
 
       }catch(e){ 
         console.error(e);
-        showMessage('Failed to load seat status.', 'error'); 
+        showMessage('Failed to load seat status.', 'error'); // (UI 英文)
       }
     }
     
@@ -284,7 +284,7 @@
       const reservations = reservationDetails[tableId]; 
       const groupInfo = tableIdToGroupMap[tableId] || defaultGroupInfo;
       if (!reservations || reservations.length === 0) {
-        tooltip.innerHTML = `<b>Table ${tableId} (${groupInfo.displayName})</b><br>No reservations yet`; 
+        tooltip.innerHTML = `<b>Table ${tableId} (${groupInfo.displayName})</b><br>No reservations yet`; // (UI 英文)
       } else {
         const formattedNames = reservations.map(res => {
           const seatCountDisplay = (res.seats && res.seats > 1) ? ` (${res.seats})` : '';
@@ -354,9 +354,9 @@
       const login=(mLogin.value||'').trim();
       const name=(mName.value||'').trim();
       const seats=Number(mSeats.value||1);
-      if(!login){ mErr.textContent='Login ID is required.'; return; } 
-      if(!name){ mErr.textContent='Employee Name is required.'; return; } 
-      if(seats<1 || seats>3){ mErr.textContent='Seats must be 1–3.'; return; } 
+      if(!login){ mErr.textContent='Login ID is required.'; return; } // (UI 英文)
+      if(!name){ mErr.textContent='Employee Name is required.'; return; } // (UI 英文)
+      if(seats<1 || seats>3){ mErr.textContent='Seats must be 1–3.'; return; } // (UI 英文)
 
       localStorage.setItem('loginId',login);
       localStorage.setItem('empName',name);
@@ -407,7 +407,7 @@
 
       }catch(err){
         console.error(err);
-        mErr.textContent='Network error. Please try again.'; 
+        mErr.textContent='Network error. Please try again.'; // (UI 英文)
       }finally{
         btnConfirm.disabled=false;
       }
