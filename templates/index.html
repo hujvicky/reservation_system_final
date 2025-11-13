@@ -358,7 +358,7 @@
       // (安全) 這裡的檢查會防止 'status-disabled' 的桌子被點擊
       if(!card || card.classList.contains('status-disabled')) return; 
       const tableId=Number(card.dataset.tableId);
-      //openModal(tableId);
+      openModal(tableId);
     });
 
     // Confirm reservation
