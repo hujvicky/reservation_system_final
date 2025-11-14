@@ -1,5 +1,5 @@
 # ======================================
-# s3_store.py - v11.1 (CAS 錯誤修正 - 中文日誌)
+# s3_store.py - v4.4 (CAS 修正 + Debug 日誌)
 # ======================================
 import boto3
 import json
@@ -19,7 +19,7 @@ TAIWAN_TZ = timezone(timedelta(hours=8))
 
 class S3Store:
     def __init__(self):
-        self.VERSION = "4.3-cas-fix-zh-log"  # <-- 版本號
+        self.VERSION = "4.4-cas-fix-final"  # <-- (新) 版本號
         self.bucket_name = os.environ.get('S3_BUCKET_NAME', 'seat-reservation-data-2025')
         self.s3_client = boto3.client('s3')
         self.s3_resource = boto3.resource('s3') # (!!!) 我們需要這個 resource
@@ -280,17 +280,12 @@ class S3Store:
         如果 ETag 不匹配，將會拋出 ClientError (PreconditionFailed)
         """
         #
-        # (!!!) --- 這裡是修正點 --- (!!!)
+        # (!!!) --- 這是修正點 --- (!!!)
         # 
-        # (舊的 - 錯誤的)
-        # self.s3_client.put_object(
-        #     Bucket=self.bucket_name,
-        #     Key="tables/tables.json",
-        #     Body=json.dumps(tables_data, ensure_ascii=False, indent=2),
-        #     ContentType='application/json',
-        #     IfMatch=etag # <--- 這是錯誤的參數
-        # )
         
+        # (新) 加入除錯日誌，強制確認此函數是否被執行
+        logger.info(f"!!! DEBUG !!! 正在執行 s3_store.py (v{self.VERSION}) 的 save_tables_data_cas")
+
         # (新的 - 正確的)
         # 我們使用 self.s3_resource (高階) 而不是 self.s3_client (低階)
         table_object = self.s3_resource.Object(self.bucket_name, "tables/tables.json")
