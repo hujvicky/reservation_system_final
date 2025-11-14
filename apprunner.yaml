@@ -4,7 +4,9 @@ runtime: python311
 build:
   commands:
     build:
-      - echo "正在安裝依賴套件..."
+      # (!!! 關鍵修正 !!!)
+      # 加入這行來強制 App Runner 丟棄舊的 .pyc 快取
+      - echo "Installing dependencies (Cache Buster v5)"
       - pip install -r requirements.txt
 run:
   # (!!! 關鍵優化 !!!)
