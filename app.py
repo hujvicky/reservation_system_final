@@ -340,8 +340,19 @@ def list_reservations():
     try:
         # 如果使用DynamoDB，使用高效分頁
         if USE_DYNAMODB and hasattr(store, 'get_reservations_paginated'):
+            
+            # === (!!! START 修正 !!!) ===
+            # Bug 猜測: ddb_store.py 的 'table_id_filter' 預期的是「字串」"67"，
+            # 但我們從 request.args.get(type=int) 得到的是「數字」67。
+            # 所以，我們在傳入 DDB 函數前，將其轉換為字串。
+            
+            table_id_filter_for_ddb = None
+            if table_id_int is not None:
+                table_id_filter_for_ddb = str(table_id_int)
+            # === (!!! END 修正 !!!) ===
+
             # 獲取總數（用於分頁計算）
-            total = store.get_reservations_count(table_id_filter=table_id)
+            total = store.get_reservations_count(table_id_filter=table_id_filter_for_ddb)
             
             # 對於頁碼式分頁，我們需要模擬跳轉到指定頁面
             # 注意：這仍然需要掃描前面的頁面，但比加載所有數據要好
@@ -357,7 +368,7 @@ def list_reservations():
                 result = store.get_reservations_paginated(
                     limit=fetch_size, 
                     last_key=last_key, 
-                    table_id_filter=table_id
+                    table_id_filter=table_id_filter_for_ddb # <-- 使用修正後的字串
                 )
                 
                 if not result['items']:
@@ -379,7 +390,8 @@ def list_reservations():
             data = collected_items[start_idx:end_idx]
             
             store_type = "DynamoDB (Native Pagination)"
-            print(f"[DEBUG] Found {len(data)} reservations in {store_type} for page {page}")
+            # (使用 logger 替換 print)
+            logger.info(f"[DEBUG] Found {len(data)} reservations in {store_type} for page {page}")
             
         else:
             # 舊版邏輯（S3或不支持分頁的情況）
@@ -388,8 +400,8 @@ def list_reservations():
             print(f"[DEBUG] Found {len(all_reservations)} reservations in {store_type}")
 
             # 過濾條件
-            if table_id:
-                all_reservations = [r for r in all_reservations if r.get("table_id") == table_id]
+            if table_id_int:
+                all_reservations = [r for r in all_reservations if r.get("table_id") == table_id_int]
 
             # 排序（最新的在前）
             all_reservations.sort(key=lambda x: x.get("created_at", ""), reverse=True)
@@ -407,7 +419,7 @@ def list_reservations():
             "page_size": size
         })
     except Exception as e:
-        print(f"[ERROR] list_reservations failed: {e}")
+        print(f"[ERROR] list_reservations failed: {e}", exc_info=True) # (加入 exc_info 取得更詳細錯誤)
         return jsonify({
             "data": [],
             "total": 0,
