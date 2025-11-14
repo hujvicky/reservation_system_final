@@ -27,7 +27,14 @@
     <div class="bg-white rounded-xl shadow p-4">
       <div class="text-lg font-semibold mb-3" id="title">Reservation Records</div>
       
-      <!-- Loading Indicator -->
+      <form id="filter" class="flex flex-wrap items-end gap-3 mb-4">
+        <div>
+          <label class="block text-sm text-gray-600 mb-1">Filter by Table</label>
+          <input id="f-table" type="number" min="1" class="border rounded px-3 py-2 w-32" placeholder="e.g. 67">
+        </div>
+        <button type="submit" class="bg-indigo-600 text-white px-4 py-2 rounded hover:bg-indigo-700">Search</button>
+        <button type="button" id="clear-filter" class="bg-gray-500 text-white px-4 py-2 rounded hover:bg-gray-600">Clear</button>
+      </form>
       <div id="loading" class="hidden text-center py-8">
         <div class="inline-flex items-center gap-2 text-gray-600">
           <svg class="animate-spin h-5 w-5" xmlns="http://www.w3.org/2000/svg" fill="none" viewBox="0 0 24 24">
@@ -38,7 +45,6 @@
         </div>
       </div>
 
-      <!-- Pagination Controls -->
       <div class="mb-4 flex items-center justify-between bg-white border border-gray-200 rounded px-4 py-3 shadow-sm">
         <div class="flex items-center gap-4">
           <span id="pagination-info" class="text-sm text-gray-700">
@@ -55,8 +61,7 @@
           </button>
           
           <div id="page-numbers" class="flex items-center gap-1 mx-2">
-            <!-- Page numbers will be inserted here -->
-          </div>
+            </div>
           
           <button id="next-btn" class="px-3 py-1 text-sm border rounded hover:bg-gray-50 disabled:opacity-50 disabled:cursor-not-allowed" disabled>
             Next →
@@ -264,7 +269,7 @@
       }
     });
 
-    // === 載入資料 with Pagination ===
+    // === 載入資料 with Pagination (已修改) ===
     async function load(){
       const rowsEl = document.getElementById('rows');
       const titleEl = document.getElementById('title');
@@ -272,8 +277,20 @@
       try {
         setLoading(true);
 
-        // 1. 執行 API 請求 with pagination
-        const r = await fetch(`/api/reservations?page=${currentPage}&page_size=${pageSize}`, {
+        // === START: 這裡是修改的地方 ===
+        // 讀取 filter input 的值
+        const table = document.getElementById('f-table').value;
+        
+        // 建立查詢參數
+        const qs = new URLSearchParams();
+        if (table) qs.set('table_id', table); // 如果有輸入桌號，就加入
+        qs.set('page', currentPage.toString());
+        qs.set('page_size', pageSize.toString());
+        // === END: 這裡是修改的地方 ===
+
+
+        // 1. 執行 API 請求 with pagination (使用新的 qs)
+        const r = await fetch(`/api/reservations?` + qs.toString(), {
           headers: getAuthHeaders(false)
         });
 
@@ -429,9 +446,9 @@
               nameInput.style.backgroundColor = '#d1fae5';
               seatsInput.style.backgroundColor = '#d1fae5';
               setTimeout(() => {
-                 loginInput.style.backgroundColor = '';
-                 nameInput.style.backgroundColor = '';
-                 seatsInput.style.backgroundColor = '';
+                  loginInput.style.backgroundColor = '';
+                  nameInput.style.backgroundColor = '';
+                  seatsInput.style.backgroundColor = '';
               }, 1500);
               load(); // Reload current page
             } else {
@@ -440,9 +457,9 @@
               nameInput.style.backgroundColor = '#fee2e2';
               seatsInput.style.backgroundColor = '#fee2e2';
               setTimeout(() => {
-                 loginInput.style.backgroundColor = '';
-                 nameInput.style.backgroundColor = '';
-                 seatsInput.style.backgroundColor = '';
+                  loginInput.style.backgroundColor = '';
+                  nameInput.style.backgroundColor = '';
+                  seatsInput.style.backgroundColor = '';
               }, 1500);
             }
           } catch (err) {
@@ -484,6 +501,17 @@
     document.getElementById('next-btn').addEventListener('click', () => loadPage(currentPage + 1));
     document.getElementById('last-btn').addEventListener('click', () => loadPage(totalPages));
 
+    document.getElementById('filter').addEventListener('submit', e => { 
+      e.preventDefault(); 
+      currentPage = 1; // 搜尋時重設回第一頁
+      load(); 
+    });
+
+    document.getElementById('clear-filter').addEventListener('click', () => {
+      document.getElementById('f-table').value = ''; // 清空 input
+      currentPage = 1; // 重設回第一頁
+      load();
+    });
     // Initialize
     load();
   </script>
