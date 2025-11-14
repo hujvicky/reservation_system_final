@@ -1,5 +1,5 @@
 # ======================================
-# app.py - v10 (效能優化 - 中文日誌)
+# app.py - v4.3 (強制重部署 - 中文日誌)
 # ======================================
 from flask import Flask, request, jsonify, send_file, render_template
 from flask_cors import CORS
@@ -20,7 +20,7 @@ from botocore.exceptions import ClientError
 logging.basicConfig(level=logging.INFO)
 logger = logging.getLogger(__name__)
 
-APP_VERSION = "4.2-perf-optimized-zh-log" # <-- 版本號
+APP_VERSION = "4.3-force-redeploy" # <-- (新) 版本號
 
 # ---------- 台灣時區設定 ----------
 TAIWAN_TZ = timezone(timedelta(hours=8))
@@ -587,7 +587,7 @@ def update_reservation_details():
 
         # 3. 檢查 Login ID 是否被變更
         if current_login_id != new_login_id:
-            # 4. 如果變更了，檢查新的 Login ID 是否已被他人使用 (受益於快取)
+            # 4. 如果變G了，檢查新的 Login ID 是否已被他人使用 (受益於快取)
             if s3_store.check_login_id_exists(new_login_id):
                 # (NEW) 復原座位變更！
                 if seat_diff > 0:
