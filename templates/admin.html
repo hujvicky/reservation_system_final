@@ -12,9 +12,21 @@
       <h1 class="text-2xl font-bold">Admin Panel</h1>
       <div class="flex gap-3">
         <a href="/index.html" class="px-3 py-2 rounded bg-gray-200 hover:bg-gray-300">Go to Seating Map</a>
-        <a href="/api/reservations.csv" class="px-3 py-2 rounded bg-indigo-600 text-white hover:bg-indigo-700" id="export-csv">Export Report (CSV)</a>
-        <a href="/login.html" class="px-3 py-2 rounded bg-red-500 text-white hover:bg-red-600">Logout</a>
+        <button id="export-csv" class="px-3 py-2 rounded bg-indigo-600 text-white hover:bg-indigo-700">Export Report (CSV)</button>
+        <a href="/login.html" id="logout-btn" class="px-3 py-2 rounded bg-red-500 text-white hover:bg-red-600">Logout</a>
       </div>
+    </div>
+
+    <!-- (!!! 新功能：依桌號查找 !!!) -->
+    <div class="mb-4 p-4 bg-white rounded-lg shadow-sm border border-gray-200">
+        <form id="filter-form" class="flex flex-wrap items-end gap-3">
+          <div>
+            <label for="f-table" class="block text-sm text-gray-600 mb-1">Filter by Table ID</label>
+            <input id="f-table" type="number" min="1" class="border rounded-md px-3 py-2 w-32" placeholder="e.g. 67">
+          </div>
+          <button type="submit" class="bg-indigo-600 text-white px-4 py-2 rounded-md hover:bg-indigo-700">Search</button>
+          <button type="button" id="clear-filter" class="bg-gray-200 text-gray-700 px-4 py-2 rounded-md hover:bg-gray-300">Clear</button>
+        </form>
     </div>
 
     <div class="mb-4">
@@ -46,7 +58,7 @@
   </div>
 
   <script>
-    const ADMIN_HTML_VERSION = "3.0-fix-delete-bug"; // <-- 版本號
+    const ADMIN_HTML_VERSION = "4.5-filter-added"; // <-- 版本號
     console.log("Admin HTML Version:", ADMIN_HTML_VERSION);
 
     function fmtTableId(n){ return 'T' + String(n).padStart(3,'0'); }
@@ -76,6 +88,13 @@
       alert('You are not logged in. Redirecting to login page.');
       window.location.href = '/login.html';
     }
+    
+    // (新) 登出按鈕
+    document.getElementById('logout-btn').addEventListener('click', (e) => {
+        e.preventDefault();
+        localStorage.removeItem('adminToken');
+        window.location.href = '/login.html';
+    });
 
     // Helper function to get auth headers
     function getAuthHeaders(isPost = true) {
@@ -87,12 +106,21 @@
       }
       return headers;
     }
-
-    // 幫 CSV 匯出按鈕加上 Token
+    
+    // (!!!) 幫 CSV 匯出按鈕加上 Token 和篩選
     const exportBtn = document.getElementById('export-csv');
     exportBtn.addEventListener('click', (e) => {
       e.preventDefault(); // 阻止預設的點擊
-      fetch('/api/reservations.csv', { headers: getAuthHeaders(false) })
+      
+      // (新) 讀取篩選值
+      const tableId = document.getElementById('f-table').value;
+      const qs = new URLSearchParams();
+      if(tableId) qs.set('table_id', tableId);
+      
+      const url = '/api/reservations.csv?' + qs.toString();
+      
+      // (注意) CSV API 也是公開的，但 admin 頁面用 token 呼叫也沒問題
+      fetch(url, { headers: getAuthHeaders(false) })
         .then(res => {
           if (!res.ok) throw new Error('Failed to download CSV');
           return res.blob();
@@ -102,7 +130,8 @@
           const a = document.createElement('a');
           a.style.display = 'none';
           a.href = url;
-          a.download = 'reservations.csv';
+          // (新) 動態檔名
+          a.download = tableId ? `reservations_table_${tableId}.csv` : 'reservations_all.csv';
           document.body.appendChild(a);
           a.click();
           window.URL.revokeObjectURL(url);
@@ -132,16 +161,22 @@
       }
     });
 
-    // === 載入資料 ===
+    // === (!!!) 載入資料 (已加入篩選) ===
     async function load(){
       let data = [];
       const rowsEl = document.getElementById('rows');
       const titleEl = document.getElementById('title');
 
       try {
-        // 1. 執行 API 請求 (加上 headers)
-        const r = await fetch('/api/reservations?page=1&page_size=500', {
-          headers: getAuthHeaders(false) // 使用 GET headers
+        // (新) 讀取篩選值
+        const tableId = document.getElementById('f-table').value;
+        const qs = new URLSearchParams({ page: 1, page_size: 500 });
+        if(tableId) qs.set('table_id', tableId);
+
+        // (!!!) 
+        // 1. 執行 API 請求 (公開 API，不需要 Token，但 admin 頁面傳送也無妨)
+        const r = await fetch('/api/reservations?' + qs.toString(), {
+          headers: getAuthHeaders(false) // 使用 GET headers (含 Token)
         });
 
         // 2. 檢查 HTTP 狀態碼 (HTTP status code)
@@ -157,24 +192,24 @@
         data = jsonResponse.data;
 
         // 4. 更新標題和表格
-        titleEl.textContent = `Reservation Records (Total: ${data.length})`;
+        const filterText = tableId ? `(Filtered for Table ${tableId})` : '(All)';
+        titleEl.textContent = `Reservation Records ${filterText} (Total: ${data.length})`;
 
         if (data.length === 0) {
           rowsEl.innerHTML = `
             <tr>
               <td colspan="7" class="p-4 text-center text-gray-500">
-                No reservation data found.
+                No reservation data found ${tableId ? 'for this table.' : '.'}
               </td>
             </tr>
           `;
           return;
         }
 
-        // (MODIFIED) 產生包含 input 的表格 row
+        // 5. 產生包含 input 的表格 row
         const rows = data.map((d, idx) => {
           const ts = formatTaiwanTime(d.created_at);
           
-          // (NEW) 產生座位下拉選單
           const seats = d.seats_taken || 1;
           const seatSelect = `
             <select class="border px-2 py-1 w-full rounded" data-input-seats="${d.id}">
@@ -208,20 +243,20 @@
         }).join('');
         rowsEl.innerHTML = rows;
 
-        // 5. 綁定事件監聽器
+        // 6. 綁定事件監聽器
         
-        // (MODIFIED) Update Button Listener
+        // Update Button Listener
         document.querySelectorAll('[data-update]').forEach(btn => {
           btn.addEventListener('click', async () => {
             const id = btn.getAttribute('data-update');
             
             const loginInput = document.querySelector(`[data-input-login="${id}"]`);
             const nameInput = document.querySelector(`[data-input-name="${id}"]`);
-            const seatsInput = document.querySelector(`[data-input-seats="${id}"]`); // (NEW)
+            const seatsInput = document.querySelector(`[data-input-seats="${id}"]`); 
             
             const newLogin = loginInput.value.trim();
             const newName = nameInput.value.trim();
-            const newSeats = Number(seatsInput.value); // (NEW)
+            const newSeats = Number(seatsInput.value); 
             
             if (!newLogin || !newName) {
               alert('Login ID and Employee Name cannot be empty.');
@@ -233,10 +268,11 @@
             }
             
             try {
+              // (!!!) 這是受保護的 API
               const res = await fetch('/api/admin/update_reservation', {
                 method: 'POST',
                 headers: getAuthHeaders(true),
-                body: JSON.stringify({ // (MODIFIED) 傳送所有資料
+                body: JSON.stringify({ 
                   reservation_id: id,
                   login_id: newLogin,
                   employee_name: newName,
@@ -248,22 +284,21 @@
               
               if (res.ok && data.success) {
                 alert('Reservation updated successfully!');
-                loginInput.style.backgroundColor = '#d1fae5'; // 成功後變綠色
+                loginInput.style.backgroundColor = '#d1fae5'; 
                 nameInput.style.backgroundColor = '#d1fae5';
                 seatsInput.style.backgroundColor = '#d1fae5';
-                setTimeout(() => { // 1秒後移除綠色
+                setTimeout(() => { 
                    loginInput.style.backgroundColor = '';
                    nameInput.style.backgroundColor = '';
                    seatsInput.style.backgroundColor = '';
                 }, 1500);
-                // 成功後重新載入，以確保 seats_left 總數正確
-                load();
+                load(); // 成功後重新載入
               } else {
                 alert(`Update Failed: ${data.message || 'Unknown error'}`);
-                loginInput.style.backgroundColor = '#fee2e2'; // 失敗後變紅色
+                loginInput.style.backgroundColor = '#fee2e2';
                 nameInput.style.backgroundColor = '#fee2e2';
                 seatsInput.style.backgroundColor = '#fee2e2';
-                setTimeout(() => { // 1秒後移除紅色
+                setTimeout(() => { 
                    loginInput.style.backgroundColor = '';
                    nameInput.style.backgroundColor = '';
                    seatsInput.style.backgroundColor = '';
@@ -275,13 +310,14 @@
           });
         });
 
-        // Cancel Button Listener (已修正)
+        // Cancel Button Listener
         document.querySelectorAll('[data-cancel]').forEach(btn=>{
           btn.addEventListener('click', async ()=>{
             const id = btn.getAttribute('data-cancel');
             if(!confirm('Cancel this reservation entirely?')) return;
             
             try {
+              // (!!!) 這是受保護的 API
               const response = await fetch('/api/cancel', {
                 method:'POST', 
                 headers: getAuthHeaders(true),
@@ -300,12 +336,9 @@
             }
           });
         });
-        
-        // (REMOVED) Reduce Button Listener
-        // ... (已刪除) ...
 
       } catch (error) {
-        // 6. 處理錯誤
+        // 7. 處理錯誤
         console.error('Reservation Data Load Error:', error);
         titleEl.textContent = `Reservation Records (Load Failed)`;
         
@@ -324,6 +357,19 @@
         `;
       }
     }
+    
+    // (!!! 新功能：綁定篩選表單 !!!)
+    document.getElementById('filter-form').addEventListener('submit', (e) => {
+        e.preventDefault();
+        load();
+    });
+    
+    // (!!! 新功能：綁定清除按鈕 !!!)
+    document.getElementById('clear-filter').addEventListener('click', () => {
+        document.getElementById('f-table').value = '';
+        load();
+    });
+
     load();
   </script>
 </body>
