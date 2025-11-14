@@ -1,5 +1,5 @@
 # ======================================
-# ddb_store.py - DynamoDB高性能儲存層
+# ddb_store.py - DynamoDB高性能儲存層 (已修正搜尋BUG)
 # ======================================
 import boto3
 import json
@@ -281,25 +281,41 @@ class DynamoDBStore:
             logger.error(f"獲取所有預訂失敗: {e}")
             return []
 
+    # === (!!! START: 已修正的函數 !!!) ===
     def get_reservations_paginated(self, limit=50, last_key=None, table_id_filter=None):
-        """獲取分頁預訂數據 - 使用DynamoDB原生分頁"""
+        """獲取分頁預訂數據 - (!!! 已修正：使用GSI Query !!!)"""
         try:
-            scan_kwargs = {
-                'Limit': limit
-            }
-            
-            # 添加起始鍵（用於分頁）
-            if last_key:
-                scan_kwargs['ExclusiveStartKey'] = last_key
-            
-            # 添加表格過濾
-            if table_id_filter:
-                scan_kwargs['FilterExpression'] = 'table_id = :table_id'
-                scan_kwargs['ExpressionAttributeValues'] = {':table_id': table_id_filter}
-            
-            response = self.reservations.scan(**scan_kwargs)
-            
             reservations = []
+            
+            # === (!!! START 修正 !!!) ===
+            # 如果有 table_id 過濾，我們使用 GSI (query)
+            if table_id_filter is not None:
+                query_kwargs = {
+                    'IndexName': 'table-id-index',
+                    'KeyConditionExpression': 'table_id = :table_id',
+                    'ExpressionAttributeValues': {':table_id': int(table_id_filter)}, # 確保是數字
+                    'Limit': limit
+                }
+                
+                # 添加起始鍵（用於分頁）
+                if last_key:
+                    query_kwargs['ExclusiveStartKey'] = last_key
+
+                response = self.reservations.query(**query_kwargs)
+                operation = "query (GSI)"
+
+            # 如果沒有過濾，我們才使用 scan
+            else:
+                scan_kwargs = {
+                    'Limit': limit
+                }
+                if last_key:
+                    scan_kwargs['ExclusiveStartKey'] = last_key
+                
+                response = self.reservations.scan(**scan_kwargs)
+                operation = "scan (Full)"
+            # === (!!! END 修正 !!!) ===
+
             for item in response.get('Items', []):
                 reservation = self._convert_from_dynamodb_format(item)
                 reservations.append(reservation)
@@ -311,47 +327,68 @@ class DynamoDBStore:
                 'has_more': 'LastEvaluatedKey' in response
             }
             
-            logger.info(f"分頁查詢返回 {len(reservations)} 筆數據")
+            logger.info(f"分頁查詢 ({operation}) 返回 {len(reservations)} 筆數據")
             return result
             
         except ClientError as e:
-            logger.error(f"分頁查詢失敗: {e}")
+            logger.error(f"分頁查詢失敗: {e}", exc_info=True)
             return {
                 'items': [],
                 'last_key': None,
                 'has_more': False
             }
+    # === (!!! END: 已修正的函數 !!!) ===
 
+
+    # === (!!! START: 已修正的函數 !!!) ===
     def get_reservations_count(self, table_id_filter=None):
-        """獲取預訂總數 - 優化計數查詢"""
+        """獲取預訂總數 - (!!! 已修正：使用GSI Query !!!)"""
         try:
-            scan_kwargs = {
-                'Select': 'COUNT'
-            }
-            
-            # 添加表格過濾
-            if table_id_filter:
-                scan_kwargs['FilterExpression'] = 'table_id = :table_id'
-                scan_kwargs['ExpressionAttributeValues'] = {':table_id': table_id_filter}
-            
             total_count = 0
             
-            # 分頁計數（DynamoDB限制）
-            while True:
-                response = self.reservations.scan(**scan_kwargs)
-                total_count += response.get('Count', 0)
-                
-                if 'LastEvaluatedKey' not in response:
-                    break
+            # === (!!! START 修正 !!!) ===
+            # 如果有 table_id 過濾，我們使用 GSI (query)
+            if table_id_filter is not None:
+                query_kwargs = {
+                    'IndexName': 'table-id-index',
+                    'KeyConditionExpression': 'table_id = :table_id',
+                    'ExpressionAttributeValues': {':table_id': int(table_id_filter)}, # 確保是數字
+                    'Select': 'COUNT'
+                }
+
+                while True:
+                    response = self.reservations.query(**query_kwargs)
+                    total_count += response.get('Count', 0)
                     
-                scan_kwargs['ExclusiveStartKey'] = response['LastEvaluatedKey']
+                    if 'LastEvaluatedKey' not in response:
+                        break
+                    query_kwargs['ExclusiveStartKey'] = response['LastEvaluatedKey']
+                
+                operation = "query (GSI)"
             
-            logger.info(f"預訂總數: {total_count}")
+            # 如果没有過濾，才用 scan
+            else:
+                scan_kwargs = {
+                    'Select': 'COUNT'
+                }
+                while True:
+                    response = self.reservations.scan(**scan_kwargs)
+                    total_count += response.get('Count', 0)
+                    
+                    if 'LastEvaluatedKey' not in response:
+                        break
+                    scan_kwargs['ExclusiveStartKey'] = response['LastEvaluatedKey']
+                
+                operation = "scan (Full)"
+            # === (!!! END 修正 !!!) ===
+
+            logger.info(f"預訂總數 ({operation}): {total_count}")
             return total_count
             
         except ClientError as e:
-            logger.error(f"計數查詢失敗: {e}")
+            logger.error(f"計數查詢失敗: {e}", exc_info=True)
             return 0
+    # === (!!! END: 已修正的函數 !!!) ===
 
     def list_reservations_by_date(self, date_str):
         """按日期列出預訂 - 使用GSI優化查詢"""
