@@ -27,6 +27,16 @@
     <div class="bg-white rounded-xl shadow p-4">
       <div class="text-lg font-semibold mb-3" id="title">Reservation Records</div>
       
+      <!-- Filter Form -->
+      <form id="filter" class="flex flex-wrap items-end gap-3 mb-4 p-3 bg-gray-50 rounded-lg border">
+        <div>
+          <label class="block text-sm text-gray-600 mb-1">Filter by Table</label>
+          <input id="f-table" type="number" min="1" max="108" class="border rounded px-3 py-2 w-32" placeholder="e.g. 21">
+        </div>
+        <button type="submit" class="bg-indigo-600 text-white px-4 py-2 rounded hover:bg-indigo-700 transition">Search</button>
+        <button type="button" id="clear-filter" class="bg-gray-500 text-white px-4 py-2 rounded hover:bg-gray-600 transition">Clear</button>
+      </form>
+      
       <!-- Loading Indicator -->
       <div id="loading" class="hidden text-center py-8">
         <div class="inline-flex items-center gap-2 text-gray-600">
@@ -264,7 +274,7 @@
       }
     });
 
-    // === 載入資料 with Pagination ===
+    // === 載入資料 with Pagination and Filtering ===
     async function load(){
       const rowsEl = document.getElementById('rows');
       const titleEl = document.getElementById('title');
@@ -272,8 +282,20 @@
       try {
         setLoading(true);
 
-        // 1. 執行 API 請求 with pagination
-        const r = await fetch(`/api/reservations?page=${currentPage}&page_size=${pageSize}`, {
+        // Get filter value
+        const tableFilter = document.getElementById('f-table').value;
+        
+        // Build query parameters
+        const queryParams = new URLSearchParams();
+        queryParams.set('page', currentPage.toString());
+        queryParams.set('page_size', pageSize.toString());
+        
+        if (tableFilter) {
+          queryParams.set('table_id', tableFilter);
+        }
+
+        // 1. 執行 API 請求 with pagination and filtering
+        const r = await fetch(`/api/reservations?${queryParams.toString()}`, {
           headers: getAuthHeaders(false)
         });
 
@@ -295,8 +317,12 @@
         pageSize = page_size;
         totalPages = Math.ceil(total / page_size);
 
-        // 4. 更新標題
-        titleEl.textContent = `Reservation Records (Total: ${total})`;
+        // 4. 更新標題 (show filter status)
+        if (tableFilter) {
+          titleEl.textContent = `Reservation Records for Table ${tableFilter} (Total: ${total})`;
+        } else {
+          titleEl.textContent = `Reservation Records (Total: ${total})`;
+        }
 
         if (data.length === 0) {
           rowsEl.innerHTML = `
@@ -483,6 +509,19 @@
     document.getElementById('prev-btn').addEventListener('click', () => loadPage(currentPage - 1));
     document.getElementById('next-btn').addEventListener('click', () => loadPage(currentPage + 1));
     document.getElementById('last-btn').addEventListener('click', () => loadPage(totalPages));
+
+    // Filter form event handlers
+    document.getElementById('filter').addEventListener('submit', (e) => {
+      e.preventDefault();
+      currentPage = 1; // Reset to first page when searching
+      load();
+    });
+
+    document.getElementById('clear-filter').addEventListener('click', () => {
+      document.getElementById('f-table').value = '';
+      currentPage = 1; // Reset to first page when clearing
+      load();
+    });
 
     // Initialize
     load();
