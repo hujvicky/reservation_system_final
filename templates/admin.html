@@ -17,11 +17,18 @@
       </div>
     </div>
 
-    <div class="mb-4">
-      <button id="resync-button" class="px-4 py-2 rounded bg-yellow-500 text-white font-semibold hover:bg-yellow-600">
-        Resync Seat Counts
-      </button>
-      <span class="ml-2 text-sm text-gray-600">If (0 left) counts seem wrong, click this to fix.</span>
+    <div class="mb-4 flex items-center gap-4">
+      <div>
+        <button id="make-reservation-button" class="px-4 py-2 rounded bg-green-600 text-white font-semibold hover:bg-green-700">
+          Make Reservation
+        </button>
+      </div>
+      <div>
+        <button id="resync-button" class="px-4 py-2 rounded bg-yellow-500 text-white font-semibold hover:bg-yellow-600">
+          Resync Seat Counts
+        </button>
+        <span class="ml-2 text-sm text-gray-600">If (0 left) counts seem wrong, click this to fix.</span>
+      </div>
     </div>
 
     <div class="bg-white rounded-xl shadow p-4">
@@ -92,6 +99,50 @@
           </thead>
           <tbody id="rows"></tbody>
         </table>
+      </div>
+    </div>
+  </div>
+
+  <!-- Admin Reservation Modal -->
+  <div id="admin-reserve-modal" class="fixed inset-0 bg-black bg-opacity-50 hidden flex items-center justify-center z-50" role="dialog" aria-modal="true" aria-labelledby="admin-reserve-title">
+    <div class="bg-white rounded-lg shadow-xl p-6 w-full max-w-md mx-4">
+      <h3 id="admin-reserve-title" class="text-lg font-semibold mb-4">Make Reservation</h3>
+      
+      <div class="space-y-4">
+        <div>
+          <label for="admin-table-id" class="block text-sm font-medium text-gray-700 mb-1">Table ID</label>
+          <input id="admin-table-id" type="number" min="1" max="108" class="w-full border border-gray-300 rounded-md px-3 py-2 focus:outline-none focus:ring-2 focus:ring-green-500 focus:border-green-500" placeholder="e.g., 21" />
+        </div>
+        
+        <div>
+          <label for="admin-login-id" class="block text-sm font-medium text-gray-700 mb-1">Login ID</label>
+          <input id="admin-login-id" type="text" class="w-full border border-gray-300 rounded-md px-3 py-2 focus:outline-none focus:ring-2 focus:ring-green-500 focus:border-green-500" placeholder="e.g., panosp" />
+        </div>
+        
+        <div>
+          <label for="admin-employee-name" class="block text-sm font-medium text-gray-700 mb-1">Employee Name</label>
+          <input id="admin-employee-name" type="text" class="w-full border border-gray-300 rounded-md px-3 py-2 focus:outline-none focus:ring-2 focus:ring-green-500 focus:border-green-500" placeholder="e.g., Panos Panay" />
+        </div>
+        
+        <div>
+          <label for="admin-seats" class="block text-sm font-medium text-gray-700 mb-1">Seats</label>
+          <select id="admin-seats" class="w-full border border-gray-300 rounded-md px-3 py-2 focus:outline-none focus:ring-2 focus:ring-green-500 focus:border-green-500">
+            <option value="1" selected>1</option>
+            <option value="2">2</option>
+            <option value="3">3</option>
+          </select>
+        </div>
+        
+        <div id="admin-reserve-error" class="text-red-600 text-sm min-h-4"></div>
+      </div>
+      
+      <div class="flex justify-end gap-3 mt-6">
+        <button type="button" id="admin-reserve-cancel" class="px-4 py-2 text-gray-700 border border-gray-300 rounded-md hover:bg-gray-50 focus:outline-none focus:ring-2 focus:ring-gray-500">
+          Cancel
+        </button>
+        <button type="button" id="admin-reserve-confirm" class="px-4 py-2 bg-green-600 text-white rounded-md hover:bg-green-700 focus:outline-none focus:ring-2 focus:ring-green-500">
+          Confirm
+        </button>
       </div>
     </div>
   </div>
@@ -521,6 +572,138 @@
       document.getElementById('f-table').value = '';
       currentPage = 1; // Reset to first page when clearing
       load();
+    });
+
+    // === Admin Reservation Modal Functionality ===
+    const adminModal = document.getElementById('admin-reserve-modal');
+    const adminTableIdInput = document.getElementById('admin-table-id');
+    const adminLoginIdInput = document.getElementById('admin-login-id');
+    const adminEmployeeNameInput = document.getElementById('admin-employee-name');
+    const adminSeatsInput = document.getElementById('admin-seats');
+    const adminErrorDiv = document.getElementById('admin-reserve-error');
+    const adminCancelBtn = document.getElementById('admin-reserve-cancel');
+    const adminConfirmBtn = document.getElementById('admin-reserve-confirm');
+
+    // Open modal
+    document.getElementById('make-reservation-button').addEventListener('click', () => {
+      // Clear previous values and errors
+      adminTableIdInput.value = '';
+      adminLoginIdInput.value = '';
+      adminEmployeeNameInput.value = '';
+      adminSeatsInput.value = '1';
+      adminErrorDiv.textContent = '';
+      
+      // Show modal
+      adminModal.classList.remove('hidden');
+      adminTableIdInput.focus();
+    });
+
+    // Close modal
+    function closeAdminModal() {
+      adminModal.classList.add('hidden');
+    }
+
+    adminCancelBtn.addEventListener('click', closeAdminModal);
+
+    // Close modal when clicking outside
+    adminModal.addEventListener('click', (e) => {
+      if (e.target === adminModal) {
+        closeAdminModal();
+      }
+    });
+
+    // Generate idempotency key
+    function generateIdempotencyKey() {
+      const bytes = new Uint8Array(16);
+      (window.crypto || window.msCrypto).getRandomValues(bytes);
+      return Array.from(bytes).map(b => b.toString(16).padStart(2, '0')).join('');
+    }
+
+    // Handle reservation creation
+    adminConfirmBtn.addEventListener('click', async () => {
+      const tableId = adminTableIdInput.value.trim();
+      const loginId = adminLoginIdInput.value.trim();
+      const employeeName = adminEmployeeNameInput.value.trim();
+      const seats = parseInt(adminSeatsInput.value);
+
+      // Clear previous errors
+      adminErrorDiv.textContent = '';
+
+      // Validation
+      if (!tableId) {
+        adminErrorDiv.textContent = 'Table ID is required.';
+        adminTableIdInput.focus();
+        return;
+      }
+
+      const tableIdNum = parseInt(tableId);
+      if (isNaN(tableIdNum) || tableIdNum < 1 || tableIdNum > 108) {
+        adminErrorDiv.textContent = 'Table ID must be between 1 and 108.';
+        adminTableIdInput.focus();
+        return;
+      }
+
+      if (!loginId) {
+        adminErrorDiv.textContent = 'Login ID is required.';
+        adminLoginIdInput.focus();
+        return;
+      }
+
+      if (!employeeName) {
+        adminErrorDiv.textContent = 'Employee Name is required.';
+        adminEmployeeNameInput.focus();
+        return;
+      }
+
+      if (isNaN(seats) || seats < 1 || seats > 3) {
+        adminErrorDiv.textContent = 'Seats must be between 1 and 3.';
+        return;
+      }
+
+      // Disable confirm button during submission
+      adminConfirmBtn.disabled = true;
+      adminConfirmBtn.textContent = 'Creating...';
+
+      try {
+        const response = await fetch('/api/reserve', {
+          method: 'POST',
+          headers: {
+            'Content-Type': 'application/json',
+            'Idempotency-Key': generateIdempotencyKey()
+          },
+          body: JSON.stringify({
+            table_id: tableIdNum,
+            seats: seats,
+            seats_to_take: seats,
+            employee_name: employeeName,
+            login_id: loginId
+          })
+        });
+
+        const data = await response.json();
+
+        if (response.ok && data.success) {
+          // Success
+          closeAdminModal();
+          alert(`Reservation created successfully! ${loginId} reserved Table ${tableIdNum} for ${seats} seat(s).`);
+          
+          // Refresh the reservation list
+          currentPage = 1; // Go to first page to see the new reservation
+          await load();
+        } else {
+          // Handle API errors
+          const errorMessage = data.message || data.error || data.detail || `Error ${response.status}`;
+          adminErrorDiv.textContent = errorMessage;
+        }
+
+      } catch (error) {
+        console.error('Reservation creation failed:', error);
+        adminErrorDiv.textContent = 'Network error. Please try again.';
+      } finally {
+        // Re-enable confirm button
+        adminConfirmBtn.disabled = false;
+        adminConfirmBtn.textContent = 'Confirm';
+      }
     });
 
     // Initialize
