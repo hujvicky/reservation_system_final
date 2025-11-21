@@ -358,7 +358,7 @@
       if(!card || card.classList.contains('status-disabled')) return; 
       const tableId=Number(card.dataset.tableId);
       // 加入排除名單：這些 ID 不開啟 modal
-      const blockedIds = [6, 7];
+      const blockedIds = [6, 7, 18];
       if (blockedIds.includes(tableId)) return;
       openModal(tableId);
     });
