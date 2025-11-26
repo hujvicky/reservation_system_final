@@ -40,8 +40,10 @@
     .group-others  { background:#fef08a; border-color:#ca8a04; } 
     .group-tpm     { background:#c7d2fe; border-color:#4f46e5; }
     .group-sidewalk{ background:#fbcfe8; border-color:#ec4899; }
-    
-    
+    /* 新增 Block 群組 - 灰色 */
+    .group-block   { background:#e5e7eb; border-color:#6b7280; }
+
+    .dept-name {
       display: block;
       font-size: 13px;
       font-weight: 800;
@@ -51,7 +53,15 @@
     }
 
     /* (已修正) 移除 pointer-events:none */
-    .status-disabled{opacity:.55;cursor:not-allowed;}
+    /* .status-disabled{opacity:.55;cursor:not-allowed;} */
+
+    /* (已修正) 滿座桌子的樣式：淡化暗一點 */
+    .status-disabled{
+      opacity:.55;
+      cursor:not-allowed;
+      /* 讓文字也稍微暗一點 */
+      filter: grayscale(30%);
+    }
     
     /* Tooltip 樣式 */
     #table-tooltip {
@@ -169,12 +179,13 @@
     'DEVICES': { displayName: 'Devices',        cssClass: 'group-devices' },
     'SUPPORT': { displayName: 'Support Teams',  cssClass: 'group-others' }, // 使用原 OTHERS 的灰色
     'TPM':     { displayName: 'TPM',            cssClass: 'group-tpm' },
-    'SIDEWALK':{ displayName: 'Sidewalk',       cssClass: 'group-sidewalk' }
+    'SIDEWALK':{ displayName: 'Sidewalk',       cssClass: 'group-sidewalk' },
+    'BLOCK':   { displayName: 'Block',          cssClass: 'group-block' } // 新增 BLOCK
   
     // 注意： group-sw (黃色) 現在未使用
   };
     const tableGroupConfig = {
-    'MAIN':     [6, 7, 97, 98, 107, 108],
+    'MAIN':     [6, 7],
     'EERO':     [88, 89, 90, 91, 92, 93, 94, 95, 96, 100, 101, 102, 103, 104, 105, 106],
     'OPS':      [10, 11, 12, 22, 23, 24, 33, 34, 35, 36, 44, 45, 46, 47, 48, 52, 53, 54, 55, 56, 57, 58, 59, 60],
     // (已合併) 將原有的 HW (41-55) 和 SW (56-73) 合併為 'ENG'
@@ -184,8 +195,8 @@
     // (已重新命名) 將原有的 OTHERS (93-97) 改為 'SUPPORT'
     'SUPPORT':  [4, 5, 8, 9, 16, 17], 
     'TPM':      [28, 29, 30, 41, 42],
-    'SIDEWALK': [64, 65, 66, 67, 68, 69]
-      
+    'SIDEWALK': [64, 65, 66, 67, 68, 69],
+    'BLOCK':    [97, 98, 107, 108] // 新增 BLOCK 的桌位
   };
     const tableIdToGroupMap = {};
   // (已更新) 將預設群組改為 SUPPORT
