@@ -1,461 +1,425 @@
 <!DOCTYPE html>
 <html lang="en">
 <head>
-  <meta charset="UTF-8" />
-  <meta name="viewport" content="width=device-width,initial-scale=1.0" />
-  <title>Seating Map • Reservations</title>
-  <script src="https://cdn.tailwindcss.com"></script>
-  <style>
-    #seating-map{
-      display:grid;
-      grid-template-columns:repeat(6,130px) 80px repeat(6,130px);
-      grid-auto-rows:130px;
-      gap:15px;
-      padding:20px;
-      background:#fff;
-      border-radius:12px;
-      box-shadow:0 6px 18px rgba(0,0,0,.08);
-      width:max-content;
-      margin:0 auto;
-    }
-    .table-card{
-      width:130px;height:130px;border-radius:50%;border:4px solid;
-      display:flex;align-items:center;justify-content:center;
-      font-weight:700;cursor:pointer;user-select:none;
-      transition:transform .15s ease, box-shadow .15s ease;
-      text-align:center;line-height:1.15;padding:10px
-    }
-    .table-card:hover{transform:translateY(-2px);box-shadow:0 10px 22px rgba(0,0,0,.08)}
-    .aisle{grid-column:7;width:100%;height:100%;min-height:130px;border-left:3px dashed #bbb;border-right:3px dashed #bbb;position:relative}
-    .aisle::before{content:'AISLE';position:absolute;top:50%;left:50%;transform:translate(-50%,-50%) rotate(-90deg);font-size:12px;color:#999;letter-spacing:2px}
-    
-    /* === 11個群組顏色 (新增 Block) === */
-    .group-main    { background:#fecaca; border-color:#ef4444; }
-    .group-eero    { background:#bbf7d0; border-color:#22c55e; }
-    .group-ops     { background:#bae6fd; border-color:#0ea5e9; }
-    .group-hw      { background:#d8b4fe; border-color:#9333ea; }
-    .group-sw      { background:#e5e7eb; border-color:#6b7280; } /* 灰色 (現未使用) */
-    .group-ai      { background:#fed7aa; border-color:#f97316; }
-    .group-devices { background:#99f6e4; border-color:#14b8a6; }
-    .group-others  { background:#fef08a; border-color:#ca8a04; } /* 黃色 */
-    .group-tpm     { background:#c7d2fe; border-color:#4f46e5; }
-    .group-sidewalk{ background:#fbcfe8; border-color:#ec4899; }
-    /* 新增 Block 群組 - 灰色 */
-    .group-block   { background:#e5e7eb; border-color:#6b7280; }
-    
-    .dept-name {
-      display: block;
-      font-size: 13px;
-      font-weight: 800;
-      line-height: 1.2;
-      margin-bottom: 4px;
-      color: #1f2937;
-    }
+  <meta charset="UTF-8" />
+  <meta name="viewport" content="width=device-width,initial-scale=1.0" />
+  <title>Seating Map • Reservations</title>
+  <script src="https://cdn.tailwindcss.com"></script>
+  <style>
+    #seating-map{
+      display:grid;
+      grid-template-columns:repeat(6,130px) 80px repeat(6,130px);
+      grid-auto-rows:130px;
+      gap:15px;
+      padding:20px;
+      background:#fff;
+      border-radius:12px;
+      box-shadow:0 6px 18px rgba(0,0,0,.08);
+      width:max-content;
+      margin:0 auto;
+    }
+    .table-card{
+      width:130px;height:130px;border-radius:50%;border:4px solid;
+      display:flex;align-items:center;justify-content:center;
+      font-weight:700;cursor:pointer;user-select:none;
+      transition:transform .15s ease, box-shadow .15s ease;
+      text-align:center;line-height:1.15;padding:10px
+    }
+    .table-card:hover{transform:translateY(-2px);box-shadow:0 10px 22px rgba(0,0,0,.08)}
+    .aisle{grid-column:7;width:100%;height:100%;min-height:130px;border-left:3px dashed #bbb;border-right:3px dashed #bbb;position:relative}
+    .aisle::before{content:'AISLE';position:absolute;top:50%;left:50%;transform:translate(-50%,-50%) rotate(-90deg);font-size:12px;color:#999;letter-spacing:2px}
+    
+    /* === 10個群組顏色 === */
+    .group-main    { background:#fecaca; border-color:#ef4444; }
+    .group-eero    { background:#bbf7d0; border-color:#22c55e; }
+    .group-ops     { background:#bae6fd; border-color:#0ea5e9; }
+    .group-hw      { background:#d8b4fe; border-color:#9333ea; }
+    .group-sw      { background:#e5e7eb; border-color:#6b7280; }
+    .group-ai      { background:#fed7aa; border-color:#f97316; }
+    .group-devices { background:#99f6e4; border-color:#14b8a6; }
+    .group-others  { background:#fef08a; border-color:#ca8a04; } 
+    .group-tpm     { background:#c7d2fe; border-color:#4f46e5; }
+    .group-sidewalk{ background:#fbcfe8; border-color:#ec4899; }
+    
+    
+      display: block;
+      font-size: 13px;
+      font-weight: 800;
+      line-height: 1.2;
+      margin-bottom: 4px;
+      color: #1f2937;
+    }
 
-    /* (已修正) 滿座桌子的樣式：淡化暗一點 */
-    .status-disabled{
-      opacity:.55;
-      cursor:not-allowed;
-      /* 讓文字也稍微暗一點 */
-      filter: grayscale(30%);
-    }
-    
-    /* Tooltip 樣式 */
-    #table-tooltip {
-      position: fixed;
-      display: none;
-      padding: 8px 12px;
-      background: rgba(30, 41, 59, 0.95);
-      color: white;
-      border-radius: 8px;
-      font-size: 13px;
-      line-height: 1.5;
-      font-weight: 500;
-      z-index: 2000;
-      pointer-events: none;
-      box-shadow: 0 5px 15px rgba(0,0,0,.2);
-      max-width: 280px;
-    }
-    #table-tooltip b {
-      color: #fef08a;
-      font-weight: 700;
-    }
+    /* (已修正) 移除 pointer-events:none */
+    .status-disabled{opacity:.55;cursor:not-allowed;}
+    
+    /* Tooltip 樣式 */
+    #table-tooltip {
+      position: fixed;
+      display: none;
+      padding: 8px 12px;
+      background: rgba(30, 41, 59, 0.95);
+      color: white;
+      border-radius: 8px;
+      font-size: 13px;
+      line-height: 1.5;
+      font-weight: 500;
+      z-index: 2000;
+      pointer-events: none;
+      box-shadow: 0 5px 15px rgba(0,0,0,.2);
+      max-width: 280px;
+    }
+    #table-tooltip b {
+      color: #fef08a;
+      font-weight: 700;
+    }
 
-    /* Modal */
-    .modal-backdrop{position:fixed;inset:0;background:rgba(0,0,0,.45);display:none;align-items:center;justify-content:center;z-index:1000}
-    .modal-backdrop.show{display:flex}
-    .modal-card{width:min(92vw,460px);background:#fff;border-radius:16px;box-shadow:0 24px 60px rgba(0,0,0,.25);padding:18px 18px 14px}
-    .modal-card h3{margin:0 0 12px;font-size:18px;font-weight:800}
-    .modal-row{display:flex;flex-direction:column;gap:6px;margin-bottom:10px}
-    .modal-row label{font-size:12px;color:#374151}
-    .modal-row input,.modal-row select{border:1px solid #d0d5dd;border-radius:10px;padding:10px 12px;font-size:14px}
-    .modal-actions{display:flex;gap:10px;justify-content:flex-end;margin-top:8px}
-    .btn{border-radius:10px;padding:10px 14px;font-weight:700;cursor:pointer;border:1px solid transparent}
-    .btn.secondary{background:#fff;border-color:#d0d5dd;color:#374151}
-    .btn.primary{background:#4f46e5;color:#fff}
-    .btn.primary[disabled]{opacity:.6;cursor:not-allowed}
-    .count{display:block;font-weight:600;font-size:12px;color:#374151}
-    .full-width-fix{
-      width:100%;
-      background-color:rgba(243,244,f6,.95);
-    }
-  </style>
+    /* Modal */
+    .modal-backdrop{position:fixed;inset:0;background:rgba(0,0,0,.45);display:none;align-items:center;justify-content:center;z-index:1000}
+    .modal-backdrop.show{display:flex}
+    .modal-card{width:min(92vw,460px);background:#fff;border-radius:16px;box-shadow:0 24px 60px rgba(0,0,0,.25);padding:18px 18px 14px}
+    .modal-card h3{margin:0 0 12px;font-size:18px;font-weight:800}
+    .modal-row{display:flex;flex-direction:column;gap:6px;margin-bottom:10px}
+    .modal-row label{font-size:12px;color:#374151}
+    .modal-row input,.modal-row select{border:1px solid #d0d5dd;border-radius:10px;padding:10px 12px;font-size:14px}
+    .modal-actions{display:flex;gap:10px;justify-content:flex-end;margin-top:8px}
+    .btn{border-radius:10px;padding:10px 14px;font-weight:700;cursor:pointer;border:1px solid transparent}
+    .btn.secondary{background:#fff;border-color:#d0d5dd;color:#374151}
+    .btn.primary{background:#4f46e5;color:#fff}
+    .btn.primary[disabled]{opacity:.6;cursor:not-allowed}
+    .count{display:block;font-weight:600;font-size:12px;color:#374151}
+    .full-width-fix{
+      width:100%;
+      background-color:rgba(243,244,f6,.95);
+    }
+  </style>
 </head>
 <body class="bg-gray-100 min-h-screen py-8">
-  <div class="w-full flex flex-col items-center">
-    
-    <div class="full-width-fix grid grid-cols-3 items-center gap-3 py-3 px-4 shadow-sm mb-4">
-      <a href="/reports.html"
-         class="justify-self-start text-[26px] text-indigo-600 hover:text-indigo-800 font-semibold underline transition-transform hover:scale-105">
-        View All Reservations
-      </a>
-      <div></div>
-    </div>
+  <div class="w-full flex flex-col items-center">
+    
+    <div class="full-width-fix grid grid-cols-3 items-center gap-3 py-3 px-4 shadow-sm mb-4">
+      <a href="/reports.html"
+         class="justify-self-start text-[26px] text-indigo-600 hover:text-indigo-800 font-semibold underline transition-transform hover:scale-105">
+        View All Reservations
+      </a>
+      <div></div>
+    </div>
 
-    <p id="msg" class="text-sm text-gray-600 mb-3" aria-live="polite"></p>
+    <p id="msg" class="text-sm text-gray-600 mb-3" aria-live="polite"></p>
 
-    <div class="mx-auto" style="width:max-content;">
+    <div class="mx-auto" style="width:max-content;">
 
-      <div class="w-full flex justify-center mb-6">
-        <div class="w-[900px] py-4 rounded-2xl border-4 border-red-500 bg-white font-extrabold text-red-500 text-4xl tracking-[0.25em] text-center shadow-[inset_0_0_0_6px_rgba(239,68,68,0.15)]">
-          S T A G E
-        </div>
-      </div>
-      
-      <div id="seating-map" aria-label="Seating map"></div>
-      
-      <div class="mt-4">
-        <div class="w-[120px] h-[80px] border-4 border-green-600 rounded-md flex flex-col items-center justify-center bg-white shadow-md">
-          <span class="text-green-600 font-bold text-sm tracking-wide leading-none">ENTRANCE</span>
-          <span class="text-gray-500 text-xs leading-none mt-1">/ EXIT</span>
-        </div>
-      </div>
-    </div>
-  </div>
+      <div class="w-full flex justify-center mb-6">
+        <div class="w-[900px] py-4 rounded-2xl border-4 border-red-500 bg-white font-extrabold text-red-500 text-4xl tracking-[0.25em] text-center shadow-[inset_0_0_0_6px_rgba(239,68,68,0.15)]">
+          S T A G E
+        </div>
+      </div>
+      
+      <div id="seating-map" aria-label="Seating map"></div>
+      
+      <div class="mt-4">
+        <div class="w-[120px] h-[80px] border-4 border-green-600 rounded-md flex flex-col items-center justify-center bg-white shadow-md">
+          <span class="text-green-600 font-bold text-sm tracking-wide leading-none">ENTRANCE</span>
+          <span class="text-gray-500 text-xs leading-none mt-1">/ EXIT</span>
+        </div>
+      </div>
+    </div>
+  </div>
 
-  <div id="reserve-modal" class="modal-backdrop" role="dialog" aria-modal="true" aria-labelledby="reserve-title">
-    <div class="modal-card">
-      <h3 id="reserve-title">Reserve Table <span id="rm-table" style="font-variant-numeric: tabular-nums;"></span></h3>
-      <div class="modal-row">
-        <label for="rm-login">Login ID</label>
-        <input id="rm-login" type="text" placeholder="panosp" />
-        <div class="count">Seats available: <span id="rm-seats-available">1</span></div>
-      </div>
-      <div class="modal-row">
-        <label for="rm-name">Employee Name</label>
-        <input id="rm-name" type="text" placeholder="Panos Panay" />
-      </div>
-      <div class="modal-row">
-        <label for="rm-seats">Seats</label>
-        <select id="rm-seats"><option value="1" selected>1</option><option value="2">2</option><option value="3">3</option></select>
-      </div>
-      <div id="rm-error" class="text-red-700 text-xs min-h-4"></div>
-      <div class="modal-actions">
-        <button type="button" class="btn secondary" id="rm-cancel">Cancel</button>
-        <button type="button" class="btn primary" id="rm-confirm">Confirm</button>
-      </div>
-    </div>
-  </div>
+  <div id="reserve-modal" class="modal-backdrop" role="dialog" aria-modal="true" aria-labelledby="reserve-title">
+    <div class="modal-card">
+      <h3 id="reserve-title">Reserve Table <span id="rm-table" style="font-variant-numeric: tabular-nums;"></span></h3>
+      <div class="modal-row">
+        <label for="rm-login">Login ID</label>
+        <input id="rm-login" type="text" placeholder="panosp" />
+      </div>
+      <div class="modal-row">
+        <label for="rm-name">Employee Name</label>
+        <input id="rm-name" type="text" placeholder="Panos Panay" />
+      </div>
+      <div class="modal-row">
+        <label for="rm-seats">Seats</label>
+        <select id="rm-seats"><option value="1" selected>1</option><option value="2">2</option><option value="3">3</option></select>
+      </div>
+      <div id="rm-error" class="text-red-700 text-xs min-h-4"></div>
+      <div class="modal-actions">
+        <button type="button" class="btn secondary" id="rm-cancel">Cancel</button>
+        <button type="button" class="btn primary" id="rm-confirm">Confirm</button>
+      </div>
+    </div>
+  </div>
 
-  <div id="table-tooltip" role="tooltip"></div>
-
-
-  <script>
-    const TOTAL=108, PER_ROW=12;
-
-    // 全域變數，用來儲存訂位名單
-    let reservationDetails = {};
-    let tableStatus = {}; // 儲存 seats_left
-
-    // === 桌位群組定義 (新增 BLOCK) ===
-  const groupConfig = {
-    'MAIN':    { displayName: 'Main',           cssClass: 'group-main' },
-    'EERO':    { displayName: 'eero',           cssClass: 'group-eero' },
-    'OPS':     { displayName: 'Operations',     cssClass: 'group-ops' },
-    'ENG':     { displayName: 'Engineering',    cssClass: 'group-hw' },
-    'AI':      { displayName: 'AI Team',        cssClass: 'group-ai' },
-    'DEVICES': { displayName: 'Devices',        cssClass: 'group-devices' },
-    'SUPPORT': { displayName: 'Support Teams',  cssClass: 'group-others' },
-    'TPM':     { displayName: 'TPM',            cssClass: 'group-tpm' },
-    'SIDEWALK':{ displayName: 'Sidewalk',       cssClass: 'group-sidewalk' },
-    'BLOCK':   { displayName: 'Block',          cssClass: 'group-block' } // 新增 BLOCK
-  };
-    const tableGroupConfig = {
-    'MAIN':     [6, 7], // 移除 97, 98, 107, 108
-    'EERO':     [88, 89, 90, 91, 92, 93, 94, 95, 96, 100, 101, 102, 103, 104, 105, 106],
-    'OPS':      [10, 11, 12, 22, 23, 24, 33, 34, 35, 36, 44, 45, 46, 47, 48, 52, 53, 54, 55, 56, 57, 58, 59, 60],
-    'ENG':      [25, 26, 27, 37, 38, 39, 40, 49, 50, 51, 59, 60, 61, 62, 63, 70, 71, 72, 73, 74, 75, 76, 77, 78, 79, 80, 81, 82, 83, 84, 85, 86, 87, 99], 
-    'AI':       [1, 2, 3, 13, 14, 15],
-    'DEVICES':  [18, 19, 20, 21, 31, 32, 43],
-    'SUPPORT':  [4, 5, 8, 9, 16, 17], 
-    'TPM':      [28, 29, 30, 41, 42],
-    'SIDEWALK': [64, 65, 66, 67, 68, 69],
-    'BLOCK':    [97, 98, 107, 108] // 新增 BLOCK 的桌位
-      
-  };
-    const tableIdToGroupMap = {};
-  // 預設群組改為 SUPPORT
-  const defaultGroupInfo = groupConfig['SUPPORT'];  
-  for (const groupKey in tableGroupConfig) {
-    if (groupConfig[groupKey]) {
-      const groupInfo = groupConfig[groupKey];
-      const tableIds = tableGroupConfig[groupKey];
-      tableIds.forEach(tableId => {
-        tableIdToGroupMap[tableId] = groupInfo;
-      });
-    }
-  }
-    // === (END) 桌位群組定義 ===
+  <div id="table-tooltip" role="tooltip"></div>
 
 
-    function showMessage(t,type='info'){
-      const el=document.getElementById('msg');
-      el.textContent=t||'';
-      el.className='text-sm mb-3 '+(type==='success'?'text-green-700':type==='error'?'text-red-700':'text-gray-600');
-    }
+  <script>
+    const TOTAL=108, PER_ROW=12;
 
-    // (!!!) Build seating grid (!!!) - 修正「桌位圖不見了」
-    const wrap=document.getElementById('seating-map');
-    let cnt=0;
-    for(let i=1;i<=TOTAL;i++){
-      const groupInfo = tableIdToGroupMap[i] || defaultGroupInfo; 
-      const d=document.createElement('div');
-      d.className='table-card';
-      d.dataset.tableId=i;
-      d.classList.add(groupInfo.cssClass);
-      d.innerHTML=`<div>
-          <span class="dept-name">${groupInfo.displayName}</span>
-          Table ${i}
-          <span class="count" data-left="${i}">(10 left)</span>
-        </div>`;
-      wrap.appendChild(d);
-      cnt++;
-      if(cnt%6===0 && cnt%12!==0){
-        const a=document.createElement('div');a.className='aisle';wrap.appendChild(a);
-      }
-      if(cnt===12) cnt=0;
-    }
+    // 全域變數，用來儲存訂位名單
+    let reservationDetails = {};
+    
 
-    // updateCounts (正確)
-    async function updateCounts(){
-      try{
-        const r=await fetch('/api/status');
-        if(!r.ok) return;
-        const { tables } = await r.json();
-
-        const newDetails = {};
-        const newStatus = {};
-
-        tables.forEach(t=>{
-          const card=document.querySelector(`.table-card[data-table-id="${t.table_id}"]`);
-          const span=document.querySelector(`.count[data-left="${t.table_id}"]`);
-          if(card && span){
-            span.textContent=`(${t.seats_left} left)`;
-            // (已修正) 滿座時加上 status-disabled 樣式
-            card.classList.toggle('status-disabled', t.seats_left <= 0);
-          }
-          
-          newDetails[t.table_id] = t.reservations || [];
-          newStatus[t.table_id] = t.seats_left || 0;
-        });
-
-        reservationDetails = newDetails;
-        tableStatus = newStatus; // 更新桌位狀態
-
-      }catch(e){ /* ignore */ }
-    }
-    updateCounts();
-    // setInterval(updateCounts,600000);
+    // === 桌位群組定義 ===
+  const groupConfig = {
+    'MAIN':    { displayName: 'Main',           cssClass: 'group-main' },
+    'EERO':    { displayName: 'eero',           cssClass: 'group-eero' },
+    'OPS':     { displayName: 'Operations',     cssClass: 'group-ops' },
+    'ENG':     { displayName: 'Engineering',    cssClass: 'group-hw' }, // 使用原 HW 的紫色
+    'AI':      { displayName: 'AI Team',        cssClass: 'group-ai' },
+    'DEVICES': { displayName: 'Devices',        cssClass: 'group-devices' },
+    'SUPPORT': { displayName: 'Support Teams',  cssClass: 'group-others' }, // 使用原 OTHERS 的灰色
+    'TPM':     { displayName: 'TPM',            cssClass: 'group-tpm' },
+    'SIDEWALK':{ displayName: 'Sidewalk',       cssClass: 'group-sidewalk' }
+  
+    // 注意： group-sw (黃色) 現在未使用
+  };
+    const tableGroupConfig = {
+    'MAIN':     [6, 7, 97, 98, 107, 108],
+    'EERO':     [88, 89, 90, 91, 92, 93, 94, 95, 96, 100, 101, 102, 103, 104, 105, 106],
+    'OPS':      [10, 11, 12, 22, 23, 24, 33, 34, 35, 36, 44, 45, 46, 47, 48, 52, 53, 54, 55, 56, 57, 58, 59, 60],
+    // (已合併) 將原有的 HW (41-55) 和 SW (56-73) 合併為 'ENG'
+    'ENG':      [25, 26, 27, 37, 38, 39, 40, 49, 50, 51, 59, 60, 61, 62, 63, 70, 71, 72, 73, 74, 75, 76, 77, 78, 79, 80, 81, 82, 83, 84, 85, 86, 87, 99], 
+    'AI':       [1, 2, 3, 13, 14, 15],
+    'DEVICES':  [18, 19, 20, 21, 31, 32, 43],
+    // (已重新命名) 將原有的 OTHERS (93-97) 改為 'SUPPORT'
+    'SUPPORT':  [4, 5, 8, 9, 16, 17], 
+    'TPM':      [28, 29, 30, 41, 42],
+    'SIDEWALK': [64, 65, 66, 67, 68, 69]
+      
+  };
+    const tableIdToGroupMap = {};
+  // (已更新) 將預設群組改為 SUPPORT
+  const defaultGroupInfo = groupConfig['SUPPORT'];  
+  for (const groupKey in tableGroupConfig) {
+    if (groupConfig[groupKey]) {
+      const groupInfo = groupConfig[groupKey];
+      const tableIds = tableGroupConfig[groupKey];
+      tableIds.forEach(tableId => {
+        tableIdToGroupMap[tableId] = groupInfo;
+      });
+    }
+  }
+    // === (END) 桌位群組定義 ===
 
 
-    // === Tooltip 事件監聽 (使用 clientX/Y) ===
-    const tooltip = document.getElementById('table-tooltip');
+    function showMessage(t,type='info'){
+      const el=document.getElementById('msg');
+      el.textContent=t||'';
+      el.className='text-sm mb-3 '+(type==='success'?'text-green-700':type==='error'?'text-red-700':'text-gray-600');
+    }
 
-    // 輔助函式：更新 tooltip 位置
-    function updateTooltipPosition(e) {
-      // 使用 e.clientX 和 e.clientY (相對於視窗)
-      let x = e.clientX + 15; // 游標右側 15px
-      let y = e.clientY + 15; // 游標下方 15px
+    // (!!!) Build seating grid (!!!)
+    // (!!!) 這是建立座位圖的程式碼，修正「桌位圖不見了」的問題 (!!!)
+    const wrap=document.getElementById('seating-map');
+    let cnt=0;
+    for(let i=1;i<=TOTAL;i++){
+      const groupInfo = tableIdToGroupMap[i] || defaultGroupInfo; 
+      const d=document.createElement('div');
+      d.className='table-card';
+      d.dataset.tableId=i;
+      d.classList.add(groupInfo.cssClass);
+      d.innerHTML=`<div>
+          <span class="dept-name">${groupInfo.displayName}</span>
+          Table ${i}
+          <span class="count" data-left="${i}">(10 left)</span>
+        </div>`;
+      wrap.appendChild(d);
+      cnt++;
+      if(cnt%6===0 && cnt%12!==0){
+        const a=document.createElement('div');a.className='aisle';wrap.appendChild(a);
+      }
+      if(cnt===12) cnt=0;
+    }
 
-      // 檢查是否超出視窗右邊界
-      if (x + tooltip.offsetWidth + 20 > window.innerWidth) {
-        x = e.clientX - tooltip.offsetWidth - 15; // 翻轉到游標左側
-      }
-      // 檢查是否超出視窗下邊界
-      if (y + tooltip.offsetHeight + 20 > window.innerHeight) {
-        y = e.clientY - tooltip.offsetHeight - 15; // 翻轉到游標上側
-      }
+    // updateCounts (正確)
+    async function updateCounts(){
+      try{
+        const r=await fetch('/api/status');
+        if(!r.ok) return;
+        const { tables } = await r.json();
 
-      tooltip.style.left = `${x}px`;
-      tooltip.style.top = `${y}px`;
-    }
+        const newDetails = {};
 
-    // 1. 滑鼠移入桌子
-    wrap.addEventListener('mouseover', (e) => {
-      const card = e.target.closest('.table-card');
-      if (!card) {
-        tooltip.style.display = 'none';
-        return;
-      }
-      
-      const tableId = card.dataset.tableId;
-      const reservations = reservationDetails[tableId]; // 這是物件陣列
-      const groupInfo = tableIdToGroupMap[tableId] || defaultGroupInfo;
+        tables.forEach(t=>{
+          const card=document.querySelector(`.table-card[data-table-id="${t.table_id}"]`);
+          const span=document.querySelector(`.count[data-left="${t.table_id}"]`);
+          if(card && span){
+            span.textContent=`(${t.seats_left} left)`;
+            card.classList.toggle('status-disabled', t.seats_left <= 0);
+          }
+          
+          newDetails[t.table_id] = t.reservations || [];
+        });
 
-      if (!reservations || reservations.length === 0) {
-        tooltip.innerHTML = `<b>Table ${tableId} (${groupInfo.displayName})</b><br>No reservations`;
-      } else {
-        // (正確的) 格式化字串，加上座位數
-        const formattedNames = reservations.map(res => {
-          const seatCountDisplay = (res.seats && res.seats > 1) ? ` (${res.seats})` : '';
-          return `${res.name}${seatCountDisplay}`;
-        });
-        tooltip.innerHTML = `<b>Table ${tableId} (${groupInfo.displayName})</b><br>${formattedNames.join('<br>')}`;
-      }
-      
-      tooltip.style.display = 'block';
-      updateTooltipPosition(e); // 呼叫修正後的函式
-    });
+        reservationDetails = newDetails;
 
-    // 2. 滑鼠在桌子上移動
-    wrap.addEventListener('mousemove', (e) => {
-      if (tooltip.style.display === 'block') {
-        updateTooltipPosition(e);
-      }
-    });
-
-    // 3. 滑鼠移出座位圖區域
-    wrap.addEventListener('mouseleave', () => {
-      tooltip.style.display = 'none';
-    });
-    // === (END) Tooltip 事件 ===
+      }catch(e){ /* ignore */ }
+    }
+    updateCounts();
+    // setInterval(updateCounts,600000);
 
 
-    // Idempotency Key
-    function makeIdemKey(){
-      const bytes=new Uint8Array(16);
-      (window.crypto||window.msCrypto).getRandomValues(bytes);
-      return Array.from(bytes).map(b=>b.toString(16).padStart(2,'0')).join('');
-    }
+    // === (已修正) Tooltip 事件監聽 (使用 clientX/Y) ===
+    const tooltip = document.getElementById('table-tooltip');
 
-    // Modal elements
-    const modal=document.getElementById('reserve-modal');
-    const mTable=document.getElementById('rm-table');
-    const mLogin=document.getElementById('rm-login');
-    const mName=document.getElementById('rm-name');
-    const mSeats=document.getElementById('rm-seats');
-    const mErr=document.getElementById('rm-error');
-    const btnCancel=document.getElementById('rm-cancel');
-    const btnConfirm=document.getElementById('rm-confirm');
-    const mSeatsAvailable=document.getElementById('rm-seats-available'); // 新增
-    let currentTableId=null;
+    // (已修正) 輔助函式：更新 tooltip 位置
+    function updateTooltipPosition(e) {
+      // 使用 e.clientX 和 e.clientY (相對於視窗)
+      let x = e.clientX + 15; // 游標右側 15px
+      let y = e.clientY + 15; // 游標下方 15px
 
-    function openModal(tableId){
-      currentTableId=tableId;
-      const seatsLeft = tableStatus[tableId] || 0; // 取得剩餘座位
+      // 檢查是否超出視窗右邊界
+      if (x + tooltip.offsetWidth + 20 > window.innerWidth) {
+        x = e.clientX - tooltip.offsetWidth - 15; // 翻轉到游標左側
+      }
+      // 檢查是否超出視窗下邊界
+      if (y + tooltip.offsetHeight + 20 > window.innerHeight) {
+        y = e.clientY - tooltip.offsetHeight - 15; // 翻轉到游標上側
+      }
 
-      if (seatsLeft <= 0) { // 再次檢查是否已滿
-        showMessage(`Table ${tableId} is full and cannot be reserved.`, 'error');
-        return;
-      }
+      tooltip.style.left = `${x}px`;
+      tooltip.style.top = `${y}px`;
+    }
 
-      mTable.textContent=tableId;
-      mSeatsAvailable.textContent = seatsLeft; // 顯示剩餘座位
+    // 1. 滑鼠移入桌子
+    wrap.addEventListener('mouseover', (e) => {
+      const card = e.target.closest('.table-card');
+      if (!card) {
+        tooltip.style.display = 'none';
+        return;
+      }
+      
+      const tableId = card.dataset.tableId;
+      const reservations = reservationDetails[tableId]; // 這是物件陣列
+      const groupInfo = tableIdToGroupMap[tableId] || defaultGroupInfo;
 
-      // 調整座位選擇下拉選單
-      let seatOptions = '';
-      const maxSeatsToSelect = Math.min(3, seatsLeft); // 最多選 3 個或剩餘座位數
-      for(let i = 1; i <= maxSeatsToSelect; i++){
-        seatOptions += `<option value="${i}">${i}</option>`;
-      }
-      mSeats.innerHTML = seatOptions;
-      mSeats.value=localStorage.getItem('seatsPref')||'1';
-      if(Number(mSeats.value) > maxSeatsToSelect) mSeats.value = '1';
+      if (!reservations || reservations.length === 0) {
+        tooltip.innerHTML = `<b>Table ${tableId} (${groupInfo.displayName})</b><br>No reservations`;
+      } else {
+        // (正確的) 格式化字串，加上座位數
+        const formattedNames = reservations.map(res => {
+          const seatCountDisplay = (res.seats && res.seats > 1) ? ` (${res.seats})` : '';
+          return `${res.name}${seatCountDisplay}`;
+        });
+        tooltip.innerHTML = `<b>Table ${tableId} (${groupInfo.displayName})</b><br>${formattedNames.join('<br>')}`;
+      }
+      
+      tooltip.style.display = 'block';
+      updateTooltipPosition(e); // 呼叫修正後的函式
+    });
 
+    // 2. 滑鼠在桌子上移動
+    wrap.addEventListener('mousemove', (e) => {
+      if (tooltip.style.display === 'block') {
+        updateTooltipPosition(e);
+      }
+    });
 
-      mLogin.value=localStorage.getItem('loginId')||'';
-      mName.value=localStorage.getItem('empName')||'';
-      mErr.textContent='';
-      modal.classList.add('show');
-    }
-    function closeModal(){ modal.classList.remove('show'); currentTableId=null; }
-    btnCancel.addEventListener('click',closeModal);
-    modal.addEventListener('click',(e)=>{ if(e.target===modal) closeModal(); });
-
-    // Click table -> open modal
-    wrap.addEventListener('click',(e)=>{
-      const card=e.target.closest('.table-card');
-      // (重要修正) 確保 'status-disabled' 的桌子不會被點擊
-      if(!card || card.classList.contains('status-disabled')) {
-        if (card) showMessage(`Table ${card.dataset.tableId} is full.`, 'error');
-        return; 
-      }
-      const tableId=Number(card.dataset.tableId);
-      // 加入排除名單：這些 ID 不開啟 modal
-      const blockedIds = [1, 2, 3, 4, 5, 6, 7, 8, 9, 10, 11, 12, 13, 14, 15, 16, 17, 18, 19, 20, 21, 22, 23, 24, 27, 28, 29, 30, 31, 32, 33, 34, 35, 36, 40, 41, 42, 43, 44, 45, 46, 47, 48, 52, 53, 54, 55, 56, 57, 58, 59, 60, 64, 65, 66, 67, 68, 69, 70, 71, 72, 76, 77, 78, 79, 80, 81, 82, 83, 84, 88, 89, 90, 91, 92, 93, 94, 95, 96, 97, 98, 99, 100, 101, 102, 103, 104, 105, 106, 107, 108];
-      if (blockedIds.includes(tableId)) return;
-      openModal(tableId);
-    });
-
-    // Confirm reservation
-    btnConfirm.addEventListener('click', async ()=>{
-      const login=(mLogin.value||'').trim();
-      const name=(mName.value||'').trim();
-      const seats=Number(mSeats.value||1);
-      const seatsLeft = tableStatus[currentTableId] || 0; // 取得最新剩餘座位
-
-      if(!login){ mErr.textContent='Login ID is required.'; return; }
-      if(!name){ mErr.textContent='Employee Name is required.'; return; }
-      if(seats<1 || seats>3){ mErr.textContent='Seats must be 1–3.'; return; }
-      if(seats > seatsLeft){ mErr.textContent=`Only ${seatsLeft} seat(s) left. Please choose fewer seats.`; return; }
+    // 3. 滑鼠移出座位圖區域
+    wrap.addEventListener('mouseleave', () => {
+      tooltip.style.display = 'none';
+    });
+    // === (END) Tooltip 事件 ===
 
 
-      localStorage.setItem('loginId',login);
-      localStorage.setItem('empName',name);
-      localStorage.setItem('seatsPref',String(seats));
+    // Idempotency Key
+    function makeIdemKey(){
+      const bytes=new Uint8Array(16);
+      (window.crypto||window.msCrypto).getRandomValues(bytes);
+      return Array.from(bytes).map(b=>b.toString(16).padStart(2,'0')).join('');
+    }
 
-      btnConfirm.disabled=true;
-      mErr.textContent='';
+    // Modal elements
+    const modal=document.getElementById('reserve-modal');
+    const mTable=document.getElementById('rm-table');
+    const mLogin=document.getElementById('rm-login');
+    const mName=document.getElementById('rm-name');
+    const mSeats=document.getElementById('rm-seats');
+    const mErr=document.getElementById('rm-error');
+    const btnCancel=document.getElementById('rm-cancel');
+    const btnConfirm=document.getElementById('rm-confirm');
+    let currentTableId=null;
 
-      try{
-        const r=await fetch('/api/reserve',{
-          method:'POST',
-          headers:{
-            'Content-Type':'application/json',
-            'Idempotency-Key': makeIdemKey()
-          },
-          body: JSON.stringify({
-            table_id: currentTableId,
-            seats: seats,
-            seats_to_take: seats,
-            employee_name: name,
-            login_id: login
-          })
-        });
+    function openModal(tableId){
+      currentTableId=tableId;
+      mTable.textContent=tableId;
+      mLogin.value=localStorage.getItem('loginId')||'';
+      mName.value=localStorage.getItem('empName')||'';
+      mSeats.value=localStorage.getItem('seatsPref')||'1';
+      mErr.textContent='';
+      modal.classList.add('show');
+    }
+    function closeModal(){ modal.classList.remove('show'); currentTableId=null; }
+    btnCancel.addEventListener('click',closeModal);
+    modal.addEventListener('click',(e)=>{ if(e.target===modal) closeModal(); });
 
-        let data=null, text='';
-        try{ data=await r.json(); }catch{ try{ text=await r.text(); }catch{} }
+    // Click table -> open modal
+    wrap.addEventListener('click',(e)=>{
+      const card=e.target.closest('.table-card');
+      // (安全) 這裡的檢查會防止 'status-disabled' 的桌子被點擊
+      if(!card || card.classList.contains('status-disabled')) return; 
+      const tableId=Number(card.dataset.tableId);
+      // 加入排除名單：這些 ID 不開啟 modal
+      const blockedIds = [1, 2, 3, 4, 5, 6, 7, 8, 9, 10, 11, 12, 13, 14, 15, 16, 17, 18, 19, 20, 21, 22, 23, 24, 27, 28, 29, 30, 31, 32, 33, 34, 35, 36, 40, 41, 42, 43, 44, 45, 46, 47, 48, 52, 53, 54, 55, 56, 57, 58, 59, 60, 64, 65, 66, 67, 68, 69, 70, 71, 72, 76, 77, 78, 79, 80, 81, 82, 83, 84, 88, 89, 90, 91, 92, 93, 94, 95, 96, 97, 98, 99, 100, 101, 102, 103, 104, 105, 106, 107, 108];
+      if (blockedIds.includes(tableId)) return;
+      openModal(tableId);
+    });
 
-        if(!r.ok){
-          mErr.textContent=(data && (data.message||data.error||data.detail)) || text || `Error ${r.status}`;
-          return;
-        }
+    // Confirm reservation
+    btnConfirm.addEventListener('click', async ()=>{
+      const login=(mLogin.value||'').trim();
+      const name=(mName.value||'').trim();
+      const seats=Number(mSeats.value||1);
+      if(!login){ mErr.textContent='Login ID is required.'; return; }
+      if(!name){ mErr.textContent='Employee Name is required.'; return; }
+      if(seats<1 || seats>3){ mErr.textContent='Seats must be 1–3.'; return; }
 
-        const tableIdJustBooked=currentTableId;
+      localStorage.setItem('loginId',login);
+      localStorage.setItem('empName',name);
+      localStorage.setItem('seatsPref',String(seats));
 
-        closeModal();
-        await updateCounts(); 
+      btnConfirm.disabled=true;
+      mErr.textContent='';
 
-        const bookedTable=(data && (data.table_id ?? tableIdJustBooked)) || tableIdJustBooked;
-        showMessage(`Reservation successful! ${login} reserved Table ${bookedTable} for ${seats} seat(s).`,'success');
+      try{
+        const r=await fetch('/api/reserve',{
+          method:'POST',
+          headers:{
+            'Content-Type':'application/json',
+            'Idempotency-Key': makeIdemKey()
+          },
+          body: JSON.stringify({
+            table_id: currentTableId,
+            seats: seats,
+            seats_to_take: seats,
+            employee_name: name,
+            login_id: login
+          })
+        });
 
-      }catch(err){
-        console.error(err);
-        mErr.textContent='Network error. Please try again.';
-      }finally{
-        btnConfirm.disabled=false;
-      }
-    });
-  </script>
+        let data=null, text='';
+        try{ data=await r.json(); }catch{ try{ text=await r.text(); }catch{} }
+
+        if(!r.ok){
+          mErr.textContent=(data && (data.message||data.error||data.detail)) || text || `Error ${r.status}`;
+          return;
+        }
+
+        const tableIdJustBooked=currentTableId;
+
+        closeModal();
+        await updateCounts(); 
+
+        const bookedTable=(data && (data.table_id ?? tableIdJustBooked)) || tableIdJustBooked;
+        showMessage(`Reservation successful! ${login} reserved Table ${bookedTable} for ${seats} seat(s).`,'success');
+
+      }catch(err){
+        console.error(err);
+        mErr.textContent='Network error. Please try again.';
+      }finally{
+        btnConfirm.disabled=false;
+      }
+    });
+  </script>
 </body>
 </html>
