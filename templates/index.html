@@ -40,7 +40,7 @@
     .group-others  { background:#fef08a; border-color:#ca8a04; } 
     .group-tpm     { background:#c7d2fe; border-color:#4f46e5; }
     .group-sidewalk{ background:#fbcfe8; border-color:#ec4899; }
-    .group-block   { background:#fef08a; border-color:#ca8a04; }
+    
     
       display: block;
       font-size: 13px;
@@ -170,11 +170,11 @@
     'SUPPORT': { displayName: 'Support Teams',  cssClass: 'group-others' }, // 使用原 OTHERS 的灰色
     'TPM':     { displayName: 'TPM',            cssClass: 'group-tpm' },
     'SIDEWALK':{ displayName: 'Sidewalk',       cssClass: 'group-sidewalk' }
-    'Block':   { displayName: 'Block',          cssClass: 'group-sidewalk' }
+  
     // 注意： group-sw (黃色) 現在未使用
   };
     const tableGroupConfig = {
-    'MAIN':     [6, 7],
+    'MAIN':     [6, 7, 97, 98, 107, 108],
     'EERO':     [88, 89, 90, 91, 92, 93, 94, 95, 96, 100, 101, 102, 103, 104, 105, 106],
     'OPS':      [10, 11, 12, 22, 23, 24, 33, 34, 35, 36, 44, 45, 46, 47, 48, 52, 53, 54, 55, 56, 57, 58, 59, 60],
     // (已合併) 將原有的 HW (41-55) 和 SW (56-73) 合併為 'ENG'
@@ -185,7 +185,7 @@
     'SUPPORT':  [4, 5, 8, 9, 16, 17], 
     'TPM':      [28, 29, 30, 41, 42],
     'SIDEWALK': [64, 65, 66, 67, 68, 69]
-    'BLOCK': [97, 98, 107, 108]  
+      
   };
     const tableIdToGroupMap = {};
   // (已更新) 將預設群組改為 SUPPORT
